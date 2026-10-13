@@ -85,39 +85,67 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
     }
     if (dryRun) { await page.keyboard.press('Escape').catch(() => {}); await SLEEP(400); await page.getByRole('button', { name: /discard/i }).first().click({ timeout: 2500 }).catch(() => {}); await page.close(); return { ok: true, result: usedNote ? 'dry_note_ready' : 'dry_ready', detail: 'reached send' + (usedNote ? ' with note' : ''), note: usedNote ? note : '' }; }
 
-    // The invite dialog (role=dialog / artdeco modal, or the 2026 native <dialog>) carries the
-    // Send control. IMPORTANT: do NOT use `has: getByRole('button', SEND_RE)` to locate the
-    // dialog — that filter ignores disabled buttons, so it fails while the send button is
-    // briefly disabled/animating after open.  Instead find the dialog by its always-present
-    // dismiss/close button, then look for send within it with a generous retry loop.
-    // LinkedIn 2026 uses "Send" / "Send invitation" / "Send without a note" / "Submit"
-    // in native <dialog> elements. Include "Submit" for the native dialog submit button.
+    // ── Send-button resolution (LinkedIn 2026) ───────────────────────────────────────────
+    // LinkedIn 2026 uses native <dialog> elements with obfuscated CSS class names.
+    // The page often has MULTIPLE open <dialog> elements (ad-option dialogs etc.) in the
+    // DOM before the invite dialog appears.  We must locate the INVITE dialog specifically
+    // rather than the first/last dialog on the page.
+    //
+    // Strategy:
+    //  1. Wait for an invite-specific dialog: one whose heading contains "invite" / "connect"
+    //     / "how do you know", or that contains a textarea (the note field).
+    //  2. Look for the send/submit button first via JS (fastest, no Playwright selector
+    //     race) — find any enabled button whose visible text / aria-label matches SEND_RE
+    //     inside that invite dialog.
+    //  3. If no invite dialog appears within 10 s, check for auto-sent Pending state.
+    //  4. Fallback scans (secondary / tertiary) as before.
     const SEND_RE = /send without a note|send invitation|send now|^send$|^submit$/i;
-    // Wait up to 10 s for ANY dialog/modal to appear after the Connect/Add-note click.
-    // Use a broad selector — the 2026 native <dialog> may not have a dismiss button yet.
-    const inviteDlg = page.locator('div[role="dialog"], .artdeco-modal, dialog[open]').first();
-    await inviteDlg.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    const dlgScope = (await inviteDlg.count().catch(() => 0)) ? inviteDlg : page;
-    let send = dlgScope.getByRole('button', { name: SEND_RE }).first();
-    // Also try type=submit within the dialog scope (LinkedIn 2026 native <dialog> uses it).
-    const submitBtn = dlgScope.locator('button[type="submit"], input[type="submit"]').first();
-    // Retry up to 14×800 ms — the send button starts disabled and enables after the dialog animates in.
-    let sendVisible = false;
-    for (let i = 0; i < 14 && !sendVisible; i++) {
-      sendVisible = await send.isVisible().catch(() => false);
-      if (!sendVisible) {
-        // also try enabled check — button may be visible but still disabled
-        const enabled = await send.isEnabled().catch(() => false);
-        if (enabled) { sendVisible = true; break; }
-        // Try type=submit fallback within the dialog
-        if (await submitBtn.isVisible().catch(() => false) && await submitBtn.isEnabled().catch(() => false)) {
-          send = submitBtn;
-          sendVisible = true;
-          break;
+
+    // JS-level search: find the invite dialog and its send button in one shot.
+    const jsSend = async () => page.evaluate((sendRe) => {
+      const re = new RegExp(sendRe, 'i');
+      // Identify the invite dialog: contains a textarea OR heading with invite/connect/know.
+      const INVITE_H = /how do you know|add a note|send.*invitation|connect/i;
+      for (const dlg of document.querySelectorAll('dialog, [role="dialog"], .artdeco-modal')) {
+        const headings = [...dlg.querySelectorAll('h1,h2,h3,legend,[role="heading"]')].map(e => e.innerText || '').join(' ');
+        const hasTextarea = dlg.querySelector('textarea') !== null;
+        const isInviteDlg = INVITE_H.test(headings) || hasTextarea;
+        if (!isInviteDlg) continue;
+        // Find an enabled send/submit button inside this dialog.
+        for (const btn of dlg.querySelectorAll('button, input[type="submit"]')) {
+          if (btn.disabled) continue;
+          const label = (btn.innerText || btn.value || btn.getAttribute('aria-label') || '').trim();
+          if (re.test(label)) return { found: true, label };
         }
-        await SLEEP(800);
+        // Dialog found but button not yet enabled — signal to keep waiting.
+        return { found: false, dialogOpen: true };
       }
+      return { found: false, dialogOpen: false };
+    }, SEND_RE.source).catch(() => ({ found: false, dialogOpen: false }));
+
+    // Wait up to 12 s for the invite dialog + enabled send button.
+    let sendVisible = false;
+    let send = null;
+    for (let i = 0; i < 15; i++) {
+      const { found, dialogOpen } = await jsSend();
+      if (found) { sendVisible = true; break; }
+      if (i === 0 && !dialogOpen) {
+        // No dialog yet — wait a bit longer before declaring failure.
+      }
+      await SLEEP(800);
     }
+
+    // Build a Playwright locator for the send button (for clicking).
+    if (sendVisible) {
+      // Prefer the invite-dialog-scoped send button; fall back to page-wide.
+      const inviteDlg = page.locator('dialog, [role="dialog"], .artdeco-modal').filter({
+        has: page.locator('textarea, h2, h3').filter({ hasText: /how do you know|add a note|send.*invitation|connect/i })
+      }).first();
+      const dlgScope = (await inviteDlg.count().catch(() => 0)) ? inviteDlg : page;
+      send = dlgScope.getByRole('button', { name: SEND_RE }).first()
+        .or(dlgScope.locator('button[type="submit"]:not([disabled])').first());
+    }
+
     if (!sendVisible) {
       // 2026 LinkedIn sometimes sends immediately on Connect click (no dialog / quota exhausted note path)
       // Check: Pending button, or "Pending" text anywhere in the top card area
@@ -125,41 +153,41 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
       const bodyTxt = await page.locator('main').innerText().catch(() => '');
       if (/pending/i.test(bodyTxt.slice(0, 1000))) { await page.close(); return { ok: true, result: 'connected_no_note', detail: 'invite sent (pending state detected)' }; }
 
-      // Secondary scan: LinkedIn 2026 UI may render the send button outside the dialog scope
-      // or use aria-label variations not matched by the role query above.
-      const secondarySend = page.locator('button').filter({ hasText: /^send$/i })
-        .or(page.locator('[aria-label*="send" i]')).first();
-      if (await secondarySend.isVisible().catch(() => false)) {
+      // Secondary scan: any button on the page matching SEND_RE that is enabled.
+      const secondarySend = page.locator('button').filter({ hasText: /send/i })
+        .or(page.locator('[aria-label*="send" i][role="button"], [aria-label*="Send invitation" i]')).first();
+      if (await secondarySend.isVisible().catch(() => false) && await secondarySend.isEnabled().catch(() => false)) {
         await secondarySend.click({ timeout: 5000 }).catch(() => {});
         await SLEEP(3000);
-        const dialogGone = (await page.locator('[data-test-modal-id]').count().catch(() => 1)) === 0;
-        if (dialogGone || await mainCol(page, /^pending$/i)) {
+        const pendingNow = await mainCol(page, /^pending$/i);
+        const bodyAfter = await page.locator('main').innerText().catch(() => '');
+        if (pendingNow || /pending|invitation sent/i.test(bodyAfter.slice(0, 1000))) {
           await page.close();
           return { ok: true, result: 'connected_no_note', detail: 'invite sent via secondary send scan' };
         }
       }
 
-      // Tertiary scan: any button inside a modal or dialog whose text includes "send".
-      const tertiarySend = page.locator('.artdeco-modal button, dialog button').filter({ hasText: /send/i }).last();
-      if (await tertiarySend.isVisible().catch(() => false)) {
-        await tertiarySend.click({ timeout: 5000 }).catch(() => {});
+      // Tertiary scan: JS-level click on any enabled send/submit button in any visible dialog.
+      const jsClicked = await page.evaluate((sendRe) => {
+        const re = new RegExp(sendRe, 'i');
+        for (const dlg of document.querySelectorAll('dialog[open], [role="dialog"]:not([aria-hidden="true"]), .artdeco-modal')) {
+          for (const btn of dlg.querySelectorAll('button:not([disabled]), input[type="submit"]:not([disabled])')) {
+            const label = (btn.innerText || btn.value || btn.getAttribute('aria-label') || '').trim();
+            if (re.test(label)) { btn.click(); return label; }
+          }
+        }
+        return null;
+      }, SEND_RE.source).catch(() => null);
+      if (jsClicked) {
         await SLEEP(3000);
-        const dialogGone = (await page.locator('[data-test-modal-id]').count().catch(() => 1)) === 0;
-        if (dialogGone || await mainCol(page, /^pending$/i)) {
+        const pendingNow = await mainCol(page, /^pending$/i);
+        const bodyAfter = await page.locator('main').innerText().catch(() => '');
+        if (pendingNow || /pending|invitation sent/i.test(bodyAfter.slice(0, 1000))) {
           await page.close();
-          return { ok: true, result: 'connected_no_note', detail: 'invite sent via tertiary modal send scan' };
+          return { ok: true, result: 'connected_no_note', detail: `invite sent via JS click on "${jsClicked}"` };
         }
       }
 
-      // Also try a broader send button scan on the full page as last resort
-      const pageSend = page.getByRole('button', { name: SEND_RE }).first();
-      if (await pageSend.isVisible().catch(() => false)) {
-        sendVisible = true;
-        await pageSend.click({ timeout: 5000 }).catch(() => {});
-        await SLEEP(3000);
-        await page.close();
-        return { ok: true, result: 'connected_no_note', detail: 'invite sent via page-level send button' };
-      }
       await encounter('connect', 'send button not found in invite dialog', { url: profileUrl, page });
       await page.close(); return { ok: false, result: 'error', detail: 'send button not found in invite dialog' };
     }
