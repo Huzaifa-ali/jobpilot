@@ -20,11 +20,32 @@ export function buildQueries({ limit = 26 } = {}) {
   const skills = p.skills || p.preferences?.skills || [];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
 
+  // Country-scoped: append location terms so LinkedIn content search surfaces local hiring posts.
+  const isCountryScope = p.preferences?.locationScope === 'country';
+  const locationTerms = isCountryScope && p.country === 'Pakistan'
+    ? [' Pakistan', ' Karachi', ' Lahore', ' Islamabad', '']
+    : [''];
+
   const out = new Set();
   for (const role of roles) {
-    out.add(`hiring ${role}${remote}`);
-    out.add(`we are hiring ${role}${remote}`);
+    for (const loc of locationTerms.slice(0, 2)) {   // top 2 location variants per role
+      out.add(`hiring ${role}${loc}${remote}`);
+      out.add(`we are hiring ${role}${loc}${remote}`);
+    }
     out.add(`looking for ${role}${remote} email your cv`);
+  }
+  // Pakistan-specific hiring phrases that local recruiters use on LinkedIn.
+  if (isCountryScope && p.country === 'Pakistan') {
+    for (const role of roles.slice(0, 4)) {
+      out.add(`${role} job Karachi`);
+      out.add(`${role} job Pakistan remote`);
+      out.add(`hiring ${role} Pakistan email cv`);
+    }
+    out.add('AI Engineer job Pakistan');
+    out.add('Backend Engineer Pakistan hiring');
+    out.add('Python developer Pakistan hiring');
+    out.add('LLM engineer Pakistan');
+    out.add('FastAPI developer Pakistan');
   }
   // Keyword-driven (langchain, fastapi, system design, …)
   for (const k of kws.slice(0, 8)) out.add(`hiring ${k} engineer${remote}`);

@@ -263,5 +263,61 @@ export async function publicBoards({ maxAgeHours = 72 } = {}) {
   for (const x of hm?.jobs || []) push('himalayas', x.title, x.companyName, x.applicationLink || x.guid, strip(x.description || x.excerpt), (x.pubDate || 0) * 1000);
   const seen = new Set();
   const uniq = leads.filter(l => !seen.has(l.url) && seen.add(l.url));
+
+  // ── Pakistani job boards ──────────────────────────────────────────────────
+  // Rozee.pk — largest Pakistani job board, has a public JSON API.
+  const rozeeKeywords = ['AI Engineer', 'Machine Learning', 'Python', 'FastAPI', 'Backend Engineer', 'LLM'];
+  for (const kw of rozeeKeywords) {
+    try {
+      const url = `https://www.rozee.pk/job/jsearch/q/${encodeURIComponent(kw)}`;
+      // Rozee doesn't have a public JSON API, scrape via their RSS feed instead.
+      const rss = await get(`https://www.rozee.pk/job/rss/q/${encodeURIComponent(kw)}`);
+      if (rss) {
+        // RSS is XML — parse manually with regex
+        const items = String(rss).match(/<item>[\s\S]*?<\/item>/g) || [];
+        for (const item of items.slice(0, 20)) {
+          const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/) || [])[1] || '';
+          const link = (item.match(/<link>(.*?)<\/link>/) || [])[1] || '';
+          const desc = (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || item.match(/<description>(.*?)<\/description>/) || [])[1] || '';
+          const pubDate = (item.match(/<pubDate>(.*?)<\/pubDate>/) || [])[1] || '';
+          const company = (item.match(/<rozee:company>(.*?)<\/rozee:company>/) || item.match(/<company>(.*?)<\/company>/) || [])[1] || '';
+          if (title && link) {
+            push('rozee.pk', title, company, link, strip(desc), pubDate ? Date.parse(pubDate) : Date.now() - 24 * 3600e3, link);
+          }
+        }
+      }
+    } catch { /* skip on error */ }
+  }
+
+  // Mustakbil.com — second largest Pakistani job board, has RSS.
+  for (const kw of ['AI Engineer', 'Python Developer', 'Backend Developer']) {
+    try {
+      const rss = await get(`https://mustakbil.com/jobs/rss/?q=${encodeURIComponent(kw)}&l=Pakistan`);
+      if (rss) {
+        const items = String(rss).match(/<item>[\s\S]*?<\/item>/g) || [];
+        for (const item of items.slice(0, 15)) {
+          const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/) || [])[1] || '';
+          const link = (item.match(/<link>(.*?)<\/link>/) || [])[1] || '';
+          const desc = (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || item.match(/<description>(.*?)<\/description>/) || [])[1] || '';
+          const pubDate = (item.match(/<pubDate>(.*?)<\/pubDate>/) || [])[1] || '';
+          if (title && link) push('mustakbil', title, '', link, strip(desc), pubDate ? Date.parse(pubDate) : Date.now() - 24 * 3600e3, link);
+        }
+      }
+    } catch { /* skip on error */ }
+  }
+
+  // Glassdoor Pakistan jobs (public JSON endpoint).
+  try {
+    const gd = await get('https://www.glassdoor.com/graph?querystring=AI+Engineer+Pakistan');
+    // If Glassdoor doesn't respond with JSON, gracefully skip.
+    if (gd?.data?.jobListings) {
+      for (const x of (gd.data.jobListings.jobListings || []).slice(0, 20)) {
+        const loc = String(x.jobLocation || '');
+        if (!/pakistan|karachi|lahore|islamabad/i.test(loc)) continue;
+        push('glassdoor', x.jobTitle, x.employer?.name || '', x.jobUrl || '', x.jobDescription || '', Date.parse(x.discover || '') || Date.now() - 86400e3);
+      }
+    }
+  } catch { /* skip */ }
+
   return { ok: true, leads: uniq, detail: `${uniq.length} fresh board jobs (${uniq.filter(l => l.email).length} email)` };
 }
