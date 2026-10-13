@@ -58,7 +58,22 @@ export async function getBrowser() {
 
 export async function getContext() {
   const b = await getBrowser();
-  return b.contexts()[0] || await b.newContext();
+  // contexts()[0] can be stale after a Chrome restart — test it before trusting it.
+  const existing = b.contexts()[0];
+  if (existing) {
+    try {
+      // Quick smoke-test: newPage() on a dead context throws immediately
+      const probe = await existing.newPage();
+      await probe.close().catch(() => {});
+      return existing;
+    } catch {
+      // Dead context — drop the cached browser and reconnect fresh
+      _browser = null;
+      const fresh = await getBrowser();
+      return fresh.contexts()[0] || await fresh.newContext();
+    }
+  }
+  return b.newContext();
 }
 
 export async function newPage(timeout = 30000) {
