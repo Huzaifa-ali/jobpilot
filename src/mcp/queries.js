@@ -9,7 +9,8 @@ const APPLY_SIGNALS = ['email your cv', 'dm me', 'apply', 'remote'];
 
 /**
  * Build a deduped list of search queries from the profile's roles + keywords.
- * Each role gets a few phrasings; remote preference is appended when set.
+ * Each role gets a few phrasings; location signals are appended when preferred locations
+ * are set so LinkedIn surfaces jobs open to Pakistan / UAE / remote worldwide.
  */
 export function buildQueries({ limit = 26 } = {}) {
   const p = getProfile();
@@ -20,15 +21,23 @@ export function buildQueries({ limit = 26 } = {}) {
   const skills = p.skills || p.preferences?.skills || [];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
 
+  // Build location signal from preferred locations (used to attract posts open to those areas).
+  // Prioritise "remote" first (widest net), then first non-city country in list.
+  const prefLocs = (p.preferences?.locations || []);
+  const locCountry = prefLocs.find(l => !['karachi','lahore','islamabad','dubai','abu dhabi'].includes(l.toLowerCase())) || '';
+  const locSignal = locCountry ? ` ${locCountry}` : '';  // e.g. " Pakistan" or " UAE"
+
   const out = new Set();
   for (const role of roles) {
     out.add(`hiring ${role}${remote}`);
     out.add(`we are hiring ${role}${remote}`);
     out.add(`looking for ${role}${remote} email your cv`);
+    // Location-targeted query for LinkedIn post search — finds posts hiring for that location.
+    if (locSignal && !remote) out.add(`hiring ${role} remote${locSignal}`);
   }
   // Keyword-driven (langchain, fastapi, system design, …)
   for (const k of kws.slice(0, 8)) out.add(`hiring ${k} engineer${remote}`);
-  // SKILLS-driven — match on what they can DO, not only titled roles (steering).
+  // SKILLS-driven — match on what they can DO, not only titled roles.
   for (const s of skills.slice(0, 8)) out.add(`hiring ${s}${remote}`);
   // Freelance / contract — a whole separate lane the user explicitly wants.
   out.add(`freelance developer${remote} hiring`);

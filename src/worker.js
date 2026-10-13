@@ -159,7 +159,7 @@ async function scout() {
       if (i % 2 === 0 && !loginBackoff('LinkedIn')) {
         const jq = jobQ[0];
         beat('scout', `LI jobs: ${jq}`);
-        for (const geoId of ['92000000', '101022442']) { // Worldwide, Pakistan
+        for (const geoId of ['92000000', '101022442', '104305776']) { // Worldwide, Pakistan, UAE
           const rj = await liJobs(jq, { easyOnly: true, tpr: 86400, geoId, pages: 1 });
           if (rj.ok) { const { n } = ingest(rj.leads); outcome('job_query', jq, { yieldN: n }); clearLogin('LinkedIn'); }
           else if (notLoggedIn(rj.detail)) flagLogin('LinkedIn', 'Please log into LinkedIn in the JobPilot Chrome window — scraping is paused until you do');
