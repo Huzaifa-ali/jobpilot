@@ -4,6 +4,8 @@
 // The CLIENT's LLM is the brain; this server is the hands + memory.
 //
 // Run:  node mcp-server.js   (stdio transport)
+import fs from 'fs';
+import path from 'path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -240,7 +242,6 @@ const TOOLS = [
       }));
     },
   },
-
   {
     name: 'easyapply_inspect',
     description: "Open a LinkedIn Easy Apply and return the FULL ordered field list across ALL pages WITHOUT submitting — each {question, type (text|long-text|single-choice|multi-choice|select|file), options, maxlength, required, page}. Use this to READ an unfamiliar form so YOU reason over every question with the user's CV + profile, then answer via easyapply_apply_with_answers. Every form differs: inspect first, think, then fill.",
@@ -535,10 +536,8 @@ async function main() {
   // "never stop until the user stops you"). Writing the stop flag on exit/SIGINT/SIGTERM/stdin-end
   // killed the background worker on every MCP disconnect — the recurring "worker stops instead of
   // looping" bug (issues #20 / #109). Only an EXPLICIT user Stop (dashboard ⏹ / `npm run stop`)
-  // should write data/.stop. We register no stop-on-disconnect hooks; just exit cleanly.
-  process.on('SIGINT',  () => process.exit(0));
-  process.on('SIGTERM', () => process.exit(0));
-  process.stdin.on('end', () => { setTimeout(() => process.exit(0), 1500); });
+  // should write data/.stop. So we register no stop-on-disconnect hooks here.
+  // (Fix harvested from PR #117 — @Huzaifa-ali.)
 }
 
 main().catch(e => { console.error('FATAL:', e); process.exit(1); });
