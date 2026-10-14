@@ -163,6 +163,8 @@ export function textAnswer(question, { numeric = false } = {}) {
     derived = p.headline || p.currentTitle || null; basis = 'headline from profile';
   } else if (/current (company|employer)|employer/.test(q)) {
     derived = p.currentCompany || null; basis = 'currentCompany from profile';
+  } else if (/english|language proficiency|proficiency (level )?in english|fluency/.test(q)) {
+    derived = ans(p, 'english proficiency', 'Professional / fluent'); basis = 'english proficiency from profile';
   } else if (/cover letter|why .*(apply|interested|join|us)|motivation|tell us|about yourself|summary|additional information|anything else/.test(q)) {
     derived = coverText(p); basis = 'generated from CV/projects/summary';
   } else if (numeric && /how many|number of|years/.test(q)) {

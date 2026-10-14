@@ -135,24 +135,42 @@ async function fillPage(page, dlg, ctx, job = {}) {
     const learnable = g[0].q.length > 8 && !/^radio-group/.test(g[0].q);
     const checked = g.find(r => r.checked);
     if (checked) { if (learnable && checked.optLabel) learn(g[0].q, checked.optLabel, 'harvested'); continue; }
-    const pick = choiceAnswer(g[0].q, g.map(r => r.optLabel));
-    if (process.env.DEBUG_EA) console.log('RADIO', JSON.stringify({ q: g[0].q, opts: g.map(r => r.optLabel), pick }));
+
+    // 2026 LinkedIn renders yes/no screening radios as raw <input type=radio> with EMPTY
+    // labels and no role=radio wrapper — both inputs share the QUESTION as aria-label and the
+    // visible "Yes"/"No" text is not in the DOM. In that case the option label can only be
+    // inferred by ORDER (LinkedIn's universal convention: first option = Yes, second = No).
+    // Build effective option labels: use real optLabels when present, else positional Yes/No.
+    const rawLabels = g.map(r => (r.optLabel || '').trim());
+    const allEmpty = rawLabels.every(l => !l);
+    const effLabels = allEmpty && g.length === 2 ? ['Yes', 'No'] : rawLabels;
+
+    const pick = choiceAnswer(g[0].q, effLabels);
+    if (process.env.DEBUG_EA) console.log('RADIO', JSON.stringify({ q: g[0].q, raw: rawLabels, eff: effLabels, pick }));
     if (!pick) {
       if (isOptionalConsent(g[0].q)) continue; // optional consent radio → don't block
-      ctx.unanswered.add(g[0].q); if (learnable) askLater(g[0].q, g.map(r => r.optLabel)); continue;
+      ctx.unanswered.add(g[0].q); if (learnable) askLater(g[0].q, effLabels); continue;
     }
-    // The role=radio WRAPPER carries aria-label=question and the visible option text.
-    // Clicking the wrapper is what registers (hidden <input> ignores synthetic clicks).
-    const wrap = dlg.getByRole('radio', { name: g[0].q, exact: false }).filter({ hasText: new RegExp(`^\\s*${pick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i') }).first();
+    // Map the picked label back to the specific input in the group.
+    const pickIdx = effLabels.findIndex(l => l.toLowerCase() === pick.toLowerCase());
+    const targetField = pickIdx >= 0 ? g[pickIdx] : g.find(x => (x.optLabel || '').toLowerCase() === pick.toLowerCase()) || g[0];
+    const loc = page.locator(`[data-ja="${targetField.id}"]`);
     let okRadio = false;
-    if (await wrap.count().catch(() => 0)) { await wrap.click({ timeout: 3000 }).catch(() => {}); okRadio = await wrap.getAttribute('aria-checked').then(v => v === 'true').catch(() => false); }
-    if (!okRadio) { // fallback: data-ja input's role=radio ancestor
-      const loc = page.locator(`[data-ja="${g.find(x => x.optLabel === pick)?.id || g[0].id}"]`);
-      await loc.locator('xpath=ancestor::*[@role="radio"][1]').click({ timeout: 2500 }).catch(() => {});
-      okRadio = await loc.isChecked().catch(() => false);
+    // Strategy 1: a role=radio wrapper (older UI) — click it (hidden input ignores synthetic clicks).
+    const wrap = dlg.getByRole('radio', { name: g[0].q, exact: false }).filter({ hasText: new RegExp(`^\\s*${pick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i') }).first();
+    if (await wrap.count().catch(() => 0)) { await wrap.click({ timeout: 2500 }).catch(() => {}); okRadio = await wrap.getAttribute('aria-checked').then(v => v === 'true').catch(() => false); }
+    // Strategy 2 (2026): click the input's <label for=id> (the clickable target), then the input itself.
+    if (!okRadio) {
+      const lblFor = dlg.locator(`label[for="${targetField.elId || ''}"]`).first();
+      if (targetField.elId && await lblFor.count().catch(() => 0)) { await lblFor.click({ timeout: 2000, force: true }).catch(() => {}); okRadio = await loc.isChecked().catch(() => false); }
     }
-    if (process.env.DEBUG_EA) console.log('  radio checked:', okRadio);
-    ctx.used.push(g[0].q);
+    // Strategy 3: check the input directly (force past the 0-size visual overlay).
+    if (!okRadio) { await loc.check({ force: true, timeout: 2000 }).catch(() => {}); okRadio = await loc.isChecked().catch(() => false); }
+    // Strategy 4: JS click + fire change, last resort.
+    if (!okRadio) { okRadio = await loc.evaluate(el => { el.checked = true; el.click(); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); return el.checked; }).catch(() => false); }
+    if (process.env.DEBUG_EA) console.log('  radio checked:', okRadio, 'pickIdx', pickIdx);
+    if (okRadio) ctx.used.push(g[0].q);
+    else if (!isOptionalConsent(g[0].q)) { ctx.unanswered.add(g[0].q); if (learnable) askLater(g[0].q, effLabels); }
   }
 
   // Checkbox GROUPS (multi-option "select all that apply" / single-select questions).
