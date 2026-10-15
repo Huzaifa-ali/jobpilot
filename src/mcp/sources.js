@@ -119,7 +119,10 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
     const url = `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&sortBy=%22date_posted%22&datePosted=%22${datePosted}%22`;
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
     await SLEEP(4000);
-    if (/login|authwall/.test(page.url())) return { ok: false, leads: [], detail: 'LinkedIn not logged in' };
+    if (/login|authwall|\/signup/.test(page.url())) {
+      console.error('[scrape] liPosts: hit login/authwall — session not logged in (landed on ' + page.url().slice(0, 80) + ')');
+      return { ok: false, leads: [], detail: 'LinkedIn not logged in (authwall) — log into LinkedIn in the debug Chrome window' };
+    }
     for (let i = 0; i < maxScroll; i++) { await page.mouse.wheel(0, 2500); await SLEEP(900); }
     // expand truncated posts so hidden emails become visible
     await page.evaluate(() => [...document.querySelectorAll('button, span[role=button]')].filter(b => /^…?\s*more$|see more/i.test(b.innerText.trim())).forEach(b => b.click())).catch(() => {});
@@ -134,7 +137,10 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
         return { actorUrl: actor ? actor.href.split('?')[0] : '', actorName: actor ? actor.innerText.split('•')[0].split('\n')[0].trim() : '', txt: txt.slice(0, 4000), links, urn, key: p.getAttribute('componentkey') };
       });
     });
+    console.error(`[scrape] liPosts: ${raw.length} post containers found on page`);
+    if (!raw.length) console.error('[scrape] liPosts: 0 posts — LinkedIn markup may have changed, the session is cold, or no results for this query/date window');
     const leads = [];
+    let notHiring = 0, skipped = 0; // drop diagnostics
     for (const r of raw) {
       const text = r.txt;
       const time = (text.match(/\n\s*(\d+\s*(?:m|h|d|w|mo|yr))\s*[•·\n]/) || text.match(/\b(\d+\s*(?:m|h|d|w|mo))\s*•/) || [])[1] || '';
@@ -145,12 +151,13 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const jobUrl = (ext.find(h => /linkedin\.com\/jobs\/view\/\d+/.test(h)) || '').split('?')[0];
       const formUrl = ext.find(h => FORM_RE.test(h) && !/linkedin\.com/.test(h)) || ext.find(h => /lnkd\.in\//.test(h)) || '';
       const hiring = /hiring|looking for|we.?re seeking|open (role|position)|join (our|the) team|send (your )?(cv|resume)|apply|vacanc|opening/i.test(text);
-      if (!hiring) continue;
+      if (!hiring) { notHiring++; continue; }
       // body = post content after the author header ("… 3h • Follow/Connect")
       const cut = text.search(/\n\s*(Follow|Connect|Subscribe)\s*\n/);
       const bodyTxt = cut > 0 ? text.slice(cut).replace(/^\s*(Follow|Connect|Subscribe)\s*/, '') : text;
       const role = guessRole(bodyTxt);
       const s = score(bodyTxt, role);
+      if (s.skip) skipped++;
       const postUrl = r.urn ? `https://www.linkedin.com/feed/update/${r.urn}/` : '';
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
       leads.push({
@@ -161,7 +168,10 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });
     }
-    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${leads.filter(l => l.email).length} with email)` };
+    const withEmail = leads.filter(l => l.email).length;
+    const actionable = leads.filter(l => !l.skip).length;
+    console.error(`[scrape] liPosts: ${raw.length} posts → ${leads.length} hiring leads (${notHiring} non-hiring dropped, ${skipped} flagged skip, ${actionable} actionable, ${withEmail} with email)`);
+    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${withEmail} with email, ${skipped} flagged skip)` };
   } catch (e) {
     console.error('[scrape] liPosts: error:', e.message);
     return { ok: false, leads: [], detail: e.message.slice(0, 200) };
@@ -361,52 +371,44 @@ export async function publicBoards({ maxAgeHours = 72 } = {}) {
   // ── Pakistani job boards ──────────────────────────────────────────────────
   // Helper to fetch XML/text (not JSON)
   const getText = async u => { try { const r = await fetch(u, { headers: { 'User-Agent': UA }, timeout: 20000 }); if (!r.ok) { console.error(`[scrape] publicBoards: GET ${u} → ${r.status}`); return null; } return r.text(); } catch (e) { console.error(`[scrape] publicBoards: GET ${u} error: ${e.message}`); return null; } };
-  const parseRssItems = xml => (String(xml || '')).match(/<item>[\s\S]*?<\/item>/g) || [];
-  const rssField = (item, tag) => (item.match(new RegExp(`<${tag}><\\!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`)) || []).slice(1).find(Boolean) || '';
+  const parseRssItems = xml => (String(xml || '')).match(/<item>[\s\S]*?<\/item>/gi) || [];
+  // tag match is case-insensitive — Mustakbil uses lowercase <pubdate>, <company>, <city> …
+  const rssField = (item, tag) => (item.match(new RegExp(`<${tag}[^>]*><\\!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`, 'i')) || []).slice(1).find(v => v != null && v !== '') || '';
+  const PK_TECH = /\b(python|django|flask|fastapi|ai|a\.i\.|ml|machine learning|deep learning|data (scien|engineer|analyst)|llm|gen ?ai|nlp|backend|back[- ]end|full[- ]?stack|software (engineer|developer)|web developer|node|react|devops|cloud|sre|mern|mlops)\b/i;
 
-  // Rozee.pk RSS — largest Pakistani job board
-  for (const kw of ['AI Engineer', 'Machine Learning', 'Python Developer', 'Backend Developer', 'LLM', 'FastAPI']) {
-    try {
-      const xml = await getText(`https://www.rozee.pk/job/rss/q/${encodeURIComponent(kw)}`);
-      for (const item of parseRssItems(xml).slice(0, 15)) {
-        const title = rssField(item, 'title');
-        const link = rssField(item, 'link') || rssField(item, 'guid');
-        const desc = strip(rssField(item, 'description'));
-        const pubDate = rssField(item, 'pubDate');
-        const company = rssField(item, 'rozee:company') || rssField(item, 'author') || '';
-        if (title && link) push('rozee.pk', title, company, link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
-      }
-    } catch { /* skip */ }
-    await new Promise(r => setTimeout(r, 600));
-  }
-
-  // Mustakbil.com RSS — second-largest Pakistani board
-  for (const kw of ['AI Engineer', 'Python Developer', 'Backend Developer']) {
-    try {
-      const xml = await getText(`https://mustakbil.com/jobs/rss/?q=${encodeURIComponent(kw)}&l=Pakistan`);
-      for (const item of parseRssItems(xml).slice(0, 12)) {
-        const title = rssField(item, 'title');
-        const link = rssField(item, 'link') || rssField(item, 'guid');
-        const desc = strip(rssField(item, 'description'));
-        const pubDate = rssField(item, 'pubDate');
-        if (title && link) push('mustakbil', title, '', link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
-      }
-    } catch { /* skip */ }
-    await new Promise(r => setTimeout(r, 600));
-  }
-
-  // Jobs.com.pk / Paperpk RSS (Pakistani job aggregators)
+  // Mustakbil.com — Pakistan's #1 job board. Old /jobs/rss/?q= path is 410 (gone); the
+  // live feed is the aggregate RSS at rss.mustakbil.com (500 freshest PK jobs, all cats,
+  // with <company>/<city>/<country>). We filter to tech roles via PK_TECH. Apply pages
+  // (mustakbil.com/jobs/job/<id>) resolve through apply_portal; emails rarely appear in the
+  // description, so most leads carry a `form` channel.
   try {
-    const xml = await getText('https://www.paperpk.com/rss/category/technology-jobs/');
-    for (const item of parseRssItems(xml).slice(0, 20)) {
-      const title = rssField(item, 'title');
+    const xml = await getText('https://rss.mustakbil.com/jobs-rss?c=162');
+    const items = parseRssItems(xml);
+    console.error(`[scrape] publicBoards: mustakbil RSS → ${items.length} items`);
+    let kept = 0;
+    for (const item of items) {
+      const title = rssField(item, 'title').replace(/\s+jobs?\s+in\s+[^,]+,\s*pakistan\s*$/i, '').trim();
       const link = rssField(item, 'link') || rssField(item, 'guid');
       const desc = strip(rssField(item, 'description'));
-      const pubDate = rssField(item, 'pubDate');
-      if (title && link && /python|ai|ml|backend|machine learning|llm|fastapi|software engineer/i.test(title + ' ' + desc))
-        push('paperpk', title, '', link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 24 * 3600e3, link);
+      const pubDate = rssField(item, 'pubdate') || rssField(item, 'pubDate');
+      const company = rssField(item, 'company').trim();
+      const city = rssField(item, 'city').trim();
+      const country = rssField(item, 'country').trim() || 'Pakistan';
+      // keep tech roles only — match the TITLE so sales/CSR posts (whose body happens to
+      // mention "software"/"AI") don't slip in; score() still re-filters off-stack titles.
+      if (!title || !link || !PK_TECH.test(title)) continue;
+      const loc = [city, country].filter(Boolean).join(', ');
+      // carry city/country into the description so the Pakistan filter + score() see the geo
+      push('mustakbil', title, company, link, `${desc} — ${loc}`.trim(), pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
+      kept++;
     }
-  } catch { /* skip */ }
+    console.error(`[scrape] publicBoards: mustakbil → ${kept} tech leads kept`);
+  } catch (e) { console.error(`[scrape] publicBoards: mustakbil error: ${e.message}`); }
+
+  // NOTE: rozee.pk and paperpk.com no longer expose a plain-fetch public feed —
+  //   rozee /job/rss/q/ → 404 and its /job/jsearch/ results are rendered client-side (JS only),
+  //   paperpk category RSS → 404. Both dead endpoints were removed so logs aren't noisy.
+  //   LinkedIn hiring posts (liPosts, Pakistan queries) remain the primary PK email source.
 
   const seen = new Set();
   const all = leads.filter(l => !seen.has(l.url) && seen.add(l.url));
