@@ -20,7 +20,8 @@
     "stop": "node scripts/stop.mjs",
     "test:browser": "node scripts/test-browser.mjs",
     "test:mcp": "node scripts/test-mcp.mjs",
-    "test:cv": "node scripts/test-cv-feature.mjs"
+    "test:cv": "node scripts/test-cv-feature.mjs",
+    "test:pr-review": "node scripts/test-pr-review.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

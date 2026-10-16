@@ -158,20 +158,25 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
      and for every change you make, **open a PR to the main repo**. When a PR is merged upstream,
      **sync again immediately** so the fork tracks the newest version. Never let the fork drift.
      The cycle is: change → PR → wait for merge → sync → repeat.
-   - **If this is the MAIN repo:** keep **reviewing and merging open `self-evolve` PRs** that have
-     passed CI, then fast-forward local `main`. Do this on a loop — new PRs should not sit unmerged.
+   - **If this is the MAIN repo:** review every open pull request. Merge the ones that
+     pass the usefulness bar in `CONTRIBUTING.md` and the security gate. Leave the rest
+     with a comment that says what to change, or close bundles and duplicates. Then
+     fast-forward local `main`.
    - **Every change the agent makes to code/docs must land on GitHub** via this flow — call
      `contribute_improvements` after `resolve_encounter`, or let the worker's ~20-min loop do it.
      Do not consider a code change complete until it is pushed / PR-opened **and the fork has been
      re-synced after the PR merges**.
    - `contribute_improvements` (→ `contributeRound()` in `src/contribute.js`): **syncs upstream
      first** (pulls the newest version), files GitHub issues for recurring blockers, then —
-     fork → opens a cross-fork PR to upstream; main → reviews + merges open self-evolve PRs.
+     fork → opens a cross-fork PR to upstream; main → reviews every open PR and merges
+     only those that pass the usefulness bar and the security gate.
      **Call it again after a PR is accepted** to pull the merge commit back in.
    - It is **hard-guarded** — aborts if anything under `data/`, `.env*`, drafts, logs, screenshots,
      or the DB is ever staged. A CI **security gate** (`scripts/ci-security-scan.mjs`) re-checks this
-     on every PR, and branch protection won't merge until it passes. Clean `self-evolve` PRs
-     auto-merge (as a **merge commit**, so attribution is preserved). Commits are authored as the
+     on every PR, and branch protection won't merge until it passes. A pull request
+     auto-merges only when it is one named fix inside the size bar in `CONTRIBUTING.md`
+     and the `review` check is green (merge commit, so attribution is preserved).
+     The `self-evolve` label is not a reason to merge. Commits are authored as the
      **GitHub username** (e.g. `maazbin`) with the account's noreply email — never a real name or a
      random name, and never a personal email. The worker runs this every ~20 min.
    - When you fix an encounter in code, `resolve_encounter` it, then let the contribute step open
@@ -196,16 +201,25 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
   - **Fork** → stay in sync with `upstream/main` (rebase) at all times, and open a **PR to the
     main repo** for every change. When your PR (or any PR) merges upstream, **sync again** to the
     newest version. The fork must never fall behind main.
-  - **Main repo** → continuously **review and merge** open `self-evolve` PRs that passed CI, then
-    fast-forward `main`. Don't let PRs pile up.
+  - **Main repo** → review every open pull request, merge only what passes the bar below,
+    then fast-forward `main`.
   - **Review EVERY open PR — from ANY contributor, not just this agent and not just
-    `self-evolve` ones.** There are several contributing agents/forks out there; their PRs count
-    too. For each: approve pending fork CI first (so the security gate can run), then if it's
-    useful and the `review` CI gate (security + syntax + boot) is green, **merge it somehow** —
-    use `--admin` to force past a stuck/mechanical `automerge` check so a useful PR is never left
-    hanging. Close empty/redundant PRs (0 changes). The ONE thing never bypassed is the `review`
-    security/data-safety gate — a failing security gate blocks the merge even for a useful-looking
-    PR, no matter who opened it.
+    `self-evolve` ones.** Author and label are not reasons to merge. Approve pending fork
+    CI first so the security gate can run. Then apply `CONTRIBUTING.md`:
+    - **Merge** a single named fix of at most 80 changed lines, in at most two code areas,
+      once the `review` check is green. `--admin` is only for a stuck mechanical check
+      after that gate is SUCCESS.
+    - **Comment and wait** on a larger diff, on `src/worker.js`, or when a smaller patch
+      overlaps a larger open rewrite of the same file. Say what to change.
+    - **Close** an empty diff, a duplicate, or a bundled `chore(self-evolve): sync improvements`
+      that spans several modules. The close comment must tell the author how to resubmit
+      one fix per pull request. Closing is not a rejection of the person.
+    - A failing `review` security gate is never bypassed.
+  - **Issues:** the open list is unsolved work only. Close fingerprint audits
+    (`Audit: …`) and `self-evolve audit` notes. Close solved issues and duplicate
+    blocker titles. Do not reopen an audit because the local ledger still says open.
+    Real blockers (Indeed, Glassdoor, account-gated ATS, board redirects, and anything
+    else that still has no fix) stay open.
   - A change is only "done" once it's pushed / its PR is opened AND a post-merge sync has been
     run. After any `resolve_encounter` or code edit, call `contribute_improvements` (or rely on
     the worker's ~20-min loop). It always **pulls the newest upstream version first**, then

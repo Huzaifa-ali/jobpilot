@@ -6,7 +6,8 @@ name: Self-evolve PR review
 #   2. Syntax check   — every changed JS file parses without errors
 #   3. Boot smoke     — the MCP server still loads and registers all tools
 #
-# Clean self-evolve PRs auto-merge once all three pass.
+# A green review check is required before merge. It is not sufficient on its own.
+# What may merge is decided in CONTRIBUTING.md (one named fix, size bar, no bundles).
 
 on:
   pull_request:
