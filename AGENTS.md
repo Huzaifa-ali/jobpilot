@@ -111,8 +111,11 @@ How this is guaranteed:
    on boot, and any browser action self-heals by relaunching Chrome if the port is down — you do
    **not** need to ask the user to start Chrome, and you rarely need `launch_chrome` (it exists only
    as a manual override). After it's up, if **LinkedIn** or **Gmail** isn't logged in, tell the user
-   in ONE line to log into them in that window; the worker shows a one-click "log in" banner and
-   **pauses that site (backing off) instead of retrying in a loop** until the user is back in.
+   in ONE line to log into them in that window, and ask them to sign into **Indeed** and **Glassdoor**
+   once in that same window. Do not drive or solve a security check on those sites, and do not keep
+   opening them while another lane is using the window. The worker shows a one-click "log in" banner
+   for LinkedIn and Gmail and **pauses that site (backing off) instead of retrying in a loop** until
+   the user is back in.
 3. **If `profileGaps` is non-empty → `open_onboarding`** and give the user the URL
    (`http://127.0.0.1:7788/onboard`). The form is **pre-filled and editable** — they upload/replace
    their CV by drag-and-drop and paste links, roles, skills, salary, work-authorization, and a
@@ -238,7 +241,8 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
   API keys, no SMTP.
 - **Never put the user's personal data in code or commits.** It lives only in `data/` (gitignored):
   `profile.json`, `jobs.db`, `uploads/`, `evolution/`. Keep it there.
-- **One manual step, at most:** the user logging into LinkedIn + Gmail once in the debug Chrome.
+- **One manual step, at most:** the user logging into LinkedIn, Gmail, Indeed, and Glassdoor once
+  in the debug Chrome. A security check on Indeed or Glassdoor is completed by the user.
 
 ## The always-on worker
 
