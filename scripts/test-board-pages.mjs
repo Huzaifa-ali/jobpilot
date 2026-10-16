@@ -8,6 +8,7 @@ const cases = [
   ['https://smartapply.indeed.com/beta/indeedapply/form/post-apply', 'Your application has been submitted!', 'submitted', 'submitted', 'normal_window'],
   ['https://smartapply.indeed.com/beta/indeedapply/form/post-apply', '', 'post-apply', 'confirm_submitted', 'normal_window'],
   ['https://pk.indeed.com/viewjob?jk=1', '', 'job', 'apply_now', 'normal_window'],
+  ['https://pk.indeed.com/', '', 'home', 'open_jobs', 'normal_window'],
   ['https://pk.indeed.com/?from=gnav-homepage--homepage-frontend', '', 'home', 'open_jobs', 'normal_window'],
   ['https://pk.indeed.com/?from=gnav-homepage', 'Additional Verification Required', 'challenge', 'stop', 'none'],
   ['https://www.glassdoor.com/profile/login_input.htm', '', 'login', 'continue_with_google', 'normal_window'],

@@ -13,8 +13,8 @@ const row = (board, step, action, drive, detail) => ({ board, step, action, driv
 
 export function classifyBoardPage({ url = '', text = '', label = '' } = {}) {
   const blob = `${text}\n${label}`;
-  let host = '', path = '', search = '';
-  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase(); search = u.search.toLowerCase(); }
+  let host = '', path = '';
+  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase(); }
   catch { return null; }
   const board = host.endsWith('glassdoor.com') ? 'glassdoor' : 'indeed';
   if (CHALLENGE.test(blob)) return row(board, 'challenge', 'stop', 'none', 'A captcha challenge stops the apply.');
@@ -27,8 +27,8 @@ export function classifyBoardPage({ url = '', text = '', label = '' } = {}) {
     return hit ? row('indeed', hit[1], hit[2], 'normal_window', hit[3]) : row('indeed', 'smartapply', 'stop', 'none', 'Unknown Indeed Apply page. Leave the debug port closed.');
   }
   if (host.endsWith('indeed.com')) {
-    if ((path === '/' || path === '') && search.includes('gnav-homepage--homepage-frontend')) {
-      return row('indeed', 'home', 'open_jobs', 'normal_window', 'Indeed jobs open at pk.indeed.com/?from=gnav-homepage--homepage-frontend.');
+    if (path === '/' || path === '') {
+      return row('indeed', 'home', 'open_jobs', 'normal_window', 'Indeed jobs open at pk.indeed.com/. A from= tracking parameter is not part of the page.');
     }
     return row('indeed', 'job', 'apply_now', 'normal_window', 'Indeed Apply now stays in the normal window. Leave the debug port closed.');
   }

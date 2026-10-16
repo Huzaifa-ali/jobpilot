@@ -4,7 +4,7 @@ Normal window, debug port closed. Issue #1 stays open for the driven browser.
 
 | From | Option | To | Result |
 |---|---|---|---|
-| `https://pk.indeed.com/?from=gnav-homepage--homepage-frontend` | Button `full details of {title}`. The company is the link `{Company} (opens in a new tab)`. The city is the text next to that link. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
+| `https://pk.indeed.com/` | Button `full details of {title}`. The company is the link `{Company} (opens in a new tab)`. The city is the text next to that link. A `from=` tracking parameter is not part of this page. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
 | that homepage | Button `Find jobs` after the title and city are filled | `https://pk.indeed.com/jobs?q={query}&l={city}` | reached |
 | that results page | Button `full details of {title}`. The sort link `date` can open a dialog "Be the first to see new {query} jobs". Close it. Do not press Activate. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
 | that pane | link `Apply now` | `contact-info-module`, or `review-module` when contact, location, and the uploaded CV are already stored | reached |
