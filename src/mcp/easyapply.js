@@ -36,6 +36,32 @@ async function clickEasyApplyControl(page, control) {
   return { ok: false, throttled: false, detail: lastError || 'Easy Apply control was not clickable' };
 }
 
+// LinkedIn can open the native dialog before its form is hydrated. During that interval the
+// dialog contains only a loader (and its Dismiss button), so filtering dialogs by Next/Review/
+// Submit incorrectly reports a real Easy Apply dialog as "not open". Keep the dialog handle
+// broad, then wait for the form controls to hydrate before handing it to the scanner.
+async function waitForEasyApplyDialog(page, timeout = 18000) {
+  const dlg = page.locator('dialog[open], [role="dialog"]:visible').first();
+  await dlg.waitFor({ state: 'visible', timeout }).catch(() => {});
+  if (!(await dlg.isVisible().catch(() => false))) return null;
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const text = await dlg.innerText().catch(() => '');
+    if (/safety reminder|safety tips|continue applying|apply to /i.test(text)) {
+      const action = dlg.getByRole('button', { name: /next|review|submit|continue/i }).first();
+      const link = dlg.getByRole('link', { name: /continue applying/i }).first();
+      if (await action.isVisible().catch(() => false) || await link.isVisible().catch(() => false)) return dlg;
+    }
+    const loader = dlg.locator('[data-testid="loader"], [role="progressbar"]').first();
+    if (!(await loader.isVisible().catch(() => false))) {
+      const action = dlg.getByRole('button', { name: /next|review|submit|continue/i }).first();
+      if (await action.isVisible().catch(() => false)) return dlg;
+    }
+    await SLEEP(500);
+  }
+  return dlg;
+}
+
 // In-page: tag every field in the dialog and describe it.
 const SCAN = (dlg) => {
   const qOf = (el) => {
@@ -316,7 +342,7 @@ async function fillPage(page, dlg, ctx, job = {}) {
       // Salary/compensation fields: LinkedIn renders them type=text but silently rejects
       // non-numeric input (e.g. "Negotiable"), which blocks "Review" with no visible error.
       // Force a numeric answer for anything salary-shaped so the page can advance.
-      const isSalary = /salary|compensation|\bctc\b|expected pay|pay expectation|remuneration|\brate\b|were you making/i.test(f.q);
+      const isSalary = /salary|compensation|\bctc\b|expected pay|pay expectation|financial expectations?|monthly gross|gross monthly|remuneration|\brate\b|were you making/i.test(f.q);
       const numeric = f.numeric || isSalary || /how many|years|number of/i.test(f.q);
       const agentV = agentAnswerFor(ctx, f.q);
       let v = agentV !== undefined ? (Array.isArray(agentV) ? agentV.join(', ') : String(agentV)) : textAnswer(f.q, { numeric });
@@ -327,10 +353,10 @@ async function fillPage(page, dlg, ctx, job = {}) {
       // Salary fields: LinkedIn renders them type=text but silently rejects non-numeric input
       // (e.g. "Negotiable"), blocking Review with no error. Force clean numeric digits, and
       // convert to USD when the field explicitly asks for USD.
-      if (isSalary && (v == null || isNaN(parseFloat(String(v).replace(/[,\s]/g, ''))))) {
+      if (isSalary && numeric) {
         const wantUsd = /\busd\b|us ?dollar|\$/i.test(f.q);
         const sal = salaryFor(wantUsd ? f.q + ' usd' : f.q, getProfile(), true);
-        v = sal != null ? String(sal).replace(/[^\d]/g, '') : v;
+        if (sal != null) v = String(sal).replace(/[^\d]/g, '');
       }
       if (v == null || v === '') { if (f.required && !isOptionalConsent(f.q)) { ctx.unanswered.add(f.q); askLater(f.q); } continue; }
       // Respect the field's maxlength so a long cover-style answer isn't silently rejected
@@ -442,12 +468,12 @@ async function fillPage(page, dlg, ctx, job = {}) {
       if (f.val && String(f.val).trim() && !/select an option/i.test(f.val)) continue; // still filled
       if (!f.required) continue;
       const loc = page.locator(`[data-ja="${f.id}"]`);
-      const isSalary = /salary|compensation|\bctc\b|were you making|desired (pay|salary)|current (pay|salary)/i.test(f.q);
+      const isSalary = /salary|compensation|\bctc\b|financial expectations?|monthly gross|gross monthly|were you making|desired (pay|salary)|current (pay|salary)/i.test(f.q);
       const numeric = f.numeric || isSalary || /how many|years|number of/i.test(f.q);
       const agentV = agentAnswerFor(ctx, f.q);
       let v = agentV !== undefined ? (Array.isArray(agentV) ? agentV.join(', ') : String(agentV)) : textAnswer(f.q, { numeric });
       if ((v == null || v === '') && /which country.*(reside|live|based)|country of residence/i.test(f.q)) v = p.country || 'Pakistan';
-      if (isSalary && (v == null || isNaN(parseFloat(String(v).replace(/[,\s]/g, ''))))) { const s = salaryFor(/\busd\b|\$/i.test(f.q) ? f.q + ' usd' : f.q, p, true); if (s != null) v = String(s).replace(/[^\d]/g, ''); }
+      if (isSalary && numeric) { const s = salaryFor(/\busd\b|\$/i.test(f.q) ? f.q + ' usd' : f.q, p, true); if (s != null) v = String(s).replace(/[^\d]/g, ''); }
       if (v == null || v === '') continue;
       if (f.tag === 'SELECT') {
         const opts = (f.opts || []).slice(1); const a = String(v).toLowerCase();
@@ -506,7 +532,7 @@ async function analyzePage(dlg, ctx = {}) {
     }
     else if (f.tag === 'SELECT') { q = f.q; const agent = agentAnswerFor(ctx, f.q); const pick = agent !== undefined ? agent : choiceAnswer(f.q, (f.opts || []).slice(1)); decision = pick; reason = pick ? `select "${pick}"` : 'no select match'; }
     else { // text / textarea / tel
-      const isSalary = /salary|compensation|\bctc\b|were you making|desired (pay|salary)|current (pay|salary)/i.test(q);
+      const isSalary = /salary|compensation|\bctc\b|financial expectations?|monthly gross|gross monthly|were you making|desired (pay|salary)|current (pay|salary)/i.test(q);
       const numeric = f.numeric || isSalary || /how many|years|number of/i.test(q);
       const agent = agentAnswerFor(ctx, q);
       let v = agent !== undefined ? (Array.isArray(agent) ? agent.join(', ') : String(agent)) : textAnswer(q, { numeric });
@@ -591,15 +617,14 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
       await encounter('easy_apply', `Easy Apply control not clickable: ${clickResult.detail}`.slice(0, 580), { url, page });
       await page.close(); return { ok: false, result: 'error', detail: clickResult.detail, meta };
     }
-    let dlg = page.locator('dialog').filter({ has: page.getByRole('button', { name: /next|review|submit|continue/i }) }).first();
-    await dlg.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    if (!(await dlg.isVisible().catch(() => false))) {
+    let dlg = await waitForEasyApplyDialog(page);
+    if (!dlg) {
       // safety/"job search safety reminder" interstitial → continue
       const cont = page.getByRole('button', { name: /continue applying|^continue$/i }).first();
-      if (await cont.isVisible().catch(() => false)) { await cont.click(); await dlg.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}); }
+      if (await cont.isVisible().catch(() => false)) { await cont.click(); dlg = await waitForEasyApplyDialog(page, 12000); }
     }
     // If we matched a "Job search safety reminder" dialog (no real form fields), dismiss it and re-find the real apply dialog.
-    if (await dlg.isVisible().catch(() => false)) {
+    if (dlg && await dlg.isVisible().catch(() => false)) {
       const dlgText = await dlg.innerText().catch(() => '');
       if (/safety reminder|safety tips|research the company|report suspicious/i.test(dlgText)) {
         const contBtn = dlg.getByRole('link', { name: /continue applying/i }).or(dlg.getByRole('button', { name: /continue applying/i })).first();
@@ -607,12 +632,11 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
           await contBtn.click().catch(() => {});
           await SLEEP(1500);
           // re-select the actual apply dialog (not the safety one)
-          dlg = page.locator('dialog').filter({ has: page.getByRole('button', { name: /next|review|submit/i }) }).first();
-          await dlg.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+          dlg = await waitForEasyApplyDialog(page, 12000);
         }
       }
     }
-    if (!(await dlg.isVisible().catch(() => false))) {
+    if (!dlg || !(await dlg.isVisible().catch(() => false))) {
       await encounter('easy_apply', 'dialog did not open', { url, page });
       await page.close(); return { ok: false, result: 'error', detail: 'Easy Apply dialog did not open', meta };
     }
@@ -704,18 +728,16 @@ async function openEasyApplyDialog(page, url) {
     await page.close().catch(() => {});
     return { done: { ok: false, result: clickResult.throttled ? 'throttled' : 'error', detail: clickResult.detail, meta } };
   }
-  let dlg = page.locator('dialog').filter({ has: page.getByRole('button', { name: /next|review|submit|continue/i }) }).first();
-  await dlg.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-  if (await dlg.isVisible().catch(() => false)) {
+  let dlg = await waitForEasyApplyDialog(page);
+  if (dlg && await dlg.isVisible().catch(() => false)) {
     const dlgText = await dlg.innerText().catch(() => '');
     if (/safety reminder|safety tips|research the company/i.test(dlgText)) {
       await dlg.getByRole('link', { name: /continue applying/i }).or(dlg.getByRole('button', { name: /continue applying/i })).first().click().catch(() => {});
       await SLEEP(1500);
-      dlg = page.locator('dialog').filter({ has: page.getByRole('button', { name: /next|review|submit/i }) }).first();
-      await dlg.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+      dlg = await waitForEasyApplyDialog(page, 12000);
     }
   }
-  if (!(await dlg.isVisible().catch(() => false))) return { done: { ok: false, result: 'error', detail: 'dialog did not open', meta } };
+  if (!dlg || !(await dlg.isVisible().catch(() => false))) return { done: { ok: false, result: 'error', detail: 'dialog did not open', meta } };
   return { dlg, meta };
 }
 
