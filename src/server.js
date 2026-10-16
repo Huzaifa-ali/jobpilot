@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 import { getProfile, updateProfile, profileGaps } from './profile.js';
 import { cdpStatus, listTabs } from './agent/browser.js';
 import { writeDash } from './dashboard.js';
+import { openManualLoginWindow } from './mcp/chrome.js';
+import { renderBoardLoginCard } from './dashboard/partials/header.js';
 import { DASH, DATA } from './config.js';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -118,6 +120,11 @@ const server = http.createServer(async (req, res) => {
       try { fs.writeFileSync(path.join(DATA, '.stop'), new Date().toISOString()); } catch {}
       return json(res, 200, { ok: true, detail: 'Stop requested — the worker will halt within a few seconds. Your logged-in Chrome stays open.' });
     }
+    // ── POST /api/open-board-login → Glassdoor in a normal window (no debug port) ─
+    if (req.method === 'POST' && url.pathname === '/api/open-board-login') {
+      const opened = await openManualLoginWindow();
+      return json(res, opened.ok ? 200 : 409, opened);
+    }
     // ── POST /api/consent → user opts in/out of auto-contribution (code/doc push) ──
     // NOTE: brain control is NOT consent-gated (it is always-on, core behavior). The only consent
     // here is autoContribute — whether code/doc fixes are pushed to GitHub.
@@ -205,9 +212,24 @@ input:focus,textarea:focus{outline:none;border-color:#6366f1}
 .ok{color:#22c55e}.warn{color:#f59e0b}
 .status{font-size:12px;margin-top:6px}
 .pill{display:inline-block;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:3px 10px;margin:3px 4px 0 0;font-size:12px}
+.boardlogin{background:#111a2e;border:1px solid #334155;border-left:3px solid #38bdf8;border-radius:8px;padding:12px 16px;margin-bottom:14px;line-height:1.5}
+.boardlogin ol{margin:8px 0 8px 18px}.boardlogin .dim{color:#64748b;font-size:12px}
+.boardlogin .opt{background:#1e293b;color:#e2e8f0;border:1px solid #3b82f6;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600}
 </style></head><body><div class="wrap">
 <h1>🤖 Job Agent — Setup</h1>
 <div class="sub">Upload your CV and paste your links. Everything stays on your machine.</div>
+${renderBoardLoginCard(false)}
+<script>
+async function openBoardLogin(){
+  const el = document.getElementById('boardLoginStatus');
+  if (el) el.textContent = 'Opening Glassdoor…';
+  try {
+    const r = await fetch('/api/open-board-login', { method: 'POST' });
+    const j = await r.json();
+    if (el) el.textContent = j.detail || (j.ok ? 'Opened.' : 'Could not open.');
+  } catch (e) { if (el) el.textContent = e.message; }
+}
+</script>
 
 <div class="card">
   <h2>📄 CV / Resume</h2>

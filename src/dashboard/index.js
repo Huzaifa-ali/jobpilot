@@ -24,6 +24,7 @@ import { dashStyles } from './styles.js';
 import {
   renderHeader,
   renderLoginBanners,
+  renderBoardLoginCard,
   renderConsentBar,
   renderBrainLoopBar,
   renderQuestionsBanner,
@@ -149,6 +150,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
 <div class="wrap">
 
   ${renderLoginBanners(state.loginNeeded)}
+  ${renderBoardLoginCard(live)}
   ${renderConsentBar(p.consent?.autoContribute !== false)}
   ${renderBrainLoopBar(brainState, installedBrains)}
   ${renderQuestionsBanner(pend.length)}

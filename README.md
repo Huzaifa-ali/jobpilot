@@ -150,8 +150,8 @@ This is the line we will keep. New work happens after this tag.
 
 These are real walls. JobPilot records them and routes around them. It does not pretend to slip past a bot check.
 
-- **Indeed** — anti-bot and login wall ([#1](https://github.com/maazbin/jobpilot/issues/1))
-- **Glassdoor** — login and anti-bot wall ([#2](https://github.com/maazbin/jobpilot/issues/2))
+- **Indeed** — a driven browser gets a check with no form ([#1](https://github.com/maazbin/jobpilot/issues/1)). Sign-in works after Glassdoor. See below.
+- **Glassdoor** — a driven browser stops on "Humans only" ([#2](https://github.com/maazbin/jobpilot/issues/2)). A normal window plus Google sign-in works.
 - **Workday, iCIMS, Taleo, SuccessFactors** — account-gated, multi-step ATS ([#3](https://github.com/maazbin/jobpilot/issues/3))
 - **Some job-board redirects** — Arbeitnow, We Work Remotely, Himalayas ([#4](https://github.com/maazbin/jobpilot/issues/4))
 - **hCaptcha on Lever** — the submit button is found. A captcha challenge still needs a person.
@@ -175,6 +175,19 @@ flowchart LR
 Verify the path with `node scripts/verify-loop.mjs`.
 
 If LinkedIn or Gmail is logged out, the dashboard shows one login link and that site waits. It does not retry in a loop.
+
+## Glassdoor, then Indeed
+
+Sign in to these two with the worker stopped and the debug window closed. The dashboard button **Open Glassdoor for sign-in** opens the JobPilot profile as a normal Chrome window.
+
+1. On Glassdoor, choose **Continue with Google**.
+2. Then sign in to Indeed with that same Google account.
+
+Opening Indeed first sticks on a check with no form. JobPilot does not solve that check. The notes for the next agent are in [`docs/board-login.md`](docs/board-login.md).
+
+![Dashboard sign-in card](docs/dashboard-board-login.png)
+
+![The same steps on the setup page](docs/onboard-board-login.png)
 
 ---
 

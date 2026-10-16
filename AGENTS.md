@@ -107,16 +107,25 @@ How this is guaranteed:
 ## The moment you connect, in order
 
 1. **`onboard_status`** — Chrome debug up? which sites logged in? profile gaps? Everything branches here.
-2. **Chrome launches itself.** The server (and the always-on worker) auto-launch the debug Chrome
-   on boot, and any browser action self-heals by relaunching Chrome if the port is down — you do
-   **not** need to ask the user to start Chrome, and you rarely need `launch_chrome` (it exists only
-   as a manual override). After it's up, if **LinkedIn** or **Gmail** isn't logged in, tell the user
-   in ONE line to log into them in that window, and ask them to sign into **Indeed** and **Glassdoor**
-   once in that same window. Do not drive or solve a security check on those sites, and do not keep
-   opening them while another lane is using the window. The worker shows a one-click "log in" banner
-   for LinkedIn and Gmail and **pauses that site (backing off) instead of retrying in a loop** until
-   the user is back in.
-3. **If `profileGaps` is non-empty → `open_onboarding`** and give the user the URL
+2. **Chrome launches itself** for LinkedIn and Gmail. The server and the worker open the debug
+   Chrome on port 9222, and a browser action relaunches it if that port is down. You rarely need
+   `launch_chrome`. If LinkedIn or Gmail is logged out, tell the user in one line to sign in in
+   that debug window. The worker pauses that site until they do.
+3. **Indeed and Glassdoor are a different window.** A driven Chrome (remote debugging, or
+   Playwright attached) does not get a login form there. Opening Indeed first sticks on a
+   Cloudflare check with no field and no button. The sequence that worked:
+   - Stop every worker. One brain and one data worker is the steady state. Extra workers
+     attach to the same profile and get in the way. `data/.stop` keeps them from respawning.
+   - Close the debug Chrome so port 9222 is down.
+   - Open the JobPilot profile as a **normal** Chrome window, Glassdoor first
+     (`openManualLoginWindow` / the dashboard button **Open Glassdoor for sign-in**).
+   - The user signs in to Glassdoor with **Continue with Google**.
+   - Then they sign in to Indeed with that same Google account.
+   - Do not solve the check. Do not hide or spoof the browser. Do not attach Playwright
+     during this step. Full notes: `docs/board-login.md`.
+   - After the user says both are signed in, remove `data/.stop` and start **one**
+     `npm run agent`. Company-site apply still only runs when the page is actually reachable.
+4. **If `profileGaps` is non-empty → `open_onboarding`** and give the user the URL
    (`http://127.0.0.1:7788/onboard`). The form is **pre-filled and editable** — they upload/replace
    their CV by drag-and-drop and paste links, roles, skills, salary, work-authorization, and a
    **free-form "anything else useful"** box the answer engine reads. Salary can be entered as a
@@ -126,7 +135,7 @@ How this is guaranteed:
    from candidate queues. They can reopen `/onboard`
    anytime to change what they gave. Never ask for a file path in chat. Poll `get_profile` until
    gaps clear. Setup is automatic: `start.js` / `npm run worker` install dependencies on first run.
-4. **Run the loop (or just start `npm run worker` for them).** Priority order, newest-posted first:
+5. **Run the loop (or just start `npm run worker` for them).** Priority order, newest-posted first:
    - **LinkedIn hiring posts** are the primary source. `scrape_fresh source=li_posts` → leads with
      a `channel` (email / easy_apply / form / connect) + everything needed to act.
    - **Emails found anywhere** (posts, HN "Who is hiring", Reddit, boards) are top priority — act via
@@ -135,7 +144,7 @@ How this is guaranteed:
      job-board pages to the real Greenhouse/Lever/Ashby/Workable ATS) for the freshest listings.
    - **Connect + note** (`linkedin_connect`) to the poster when there's no email/form.
    - `scrape_fresh source=hn|reddit|boards|li_jobs` for breadth. `web_research` to chase links.
-5. **Report** with `get_stats` + `open_dashboard`.
+6. **Report** with `get_stats` + `open_dashboard`.
 
 ## The self-evolution loop — do this every session
 
@@ -149,6 +158,8 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
 2. **Fix the top encounters in code.** Open `data/evolution/<area>-<hash>.png/.html`, see exactly
    what the page looked like, patch the relevant module (`src/mcp/easyapply.js`, `forms.js`,
    `connect.js`, `sources.js`), then `resolve_encounter id "<what you changed>"`.
+   An Indeed or Glassdoor login wall is the learned path in `docs/board-login.md`
+   (normal window, Glassdoor with Google, then Indeed). Do not spoof a fingerprint for it.
 3. **Clear pending questions.** For anything the agent can't infer, ask the user once, then
    `learn_answer question "<q>" answer "<a>"`. The dashboard's 🧠 Questions tab **pre-fills a
    recommended answer** drawn from the user's profile + free-form context (and marks the suggested
@@ -241,8 +252,9 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
   API keys, no SMTP.
 - **Never put the user's personal data in code or commits.** It lives only in `data/` (gitignored):
   `profile.json`, `jobs.db`, `uploads/`, `evolution/`. Keep it there.
-- **One manual step, at most:** the user logging into LinkedIn, Gmail, Indeed, and Glassdoor once
-  in the debug Chrome. A security check on Indeed or Glassdoor is completed by the user.
+- **Manual sign-in:** LinkedIn and Gmail once in the debug Chrome. Glassdoor and Indeed once
+  in a normal window on that same profile, Glassdoor with Google first, then Indeed.
+  See `docs/board-login.md`. A security check is left for the user.
 
 ## The always-on worker
 

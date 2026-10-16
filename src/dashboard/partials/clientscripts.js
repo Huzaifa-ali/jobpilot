@@ -98,6 +98,19 @@ async function tailoredConsent(on){
   } catch(e) { alert('Could not update tailored CV approval: ' + e.message); }
 }
 
+// ── Glassdoor, then Indeed, in a normal window ───────────────────────────────
+async function openBoardLogin(){
+  const el = document.getElementById('boardLoginStatus');
+  if (el) el.textContent = 'Opening Glassdoor…';
+  try {
+    const r = await fetch(apiBase() + '/api/open-board-login', { method: 'POST' });
+    const j = await r.json();
+    if (el) el.textContent = j.detail || (j.ok ? 'Opened.' : 'Could not open.');
+  } catch (e) {
+    if (el) el.textContent = e.message;
+  }
+}
+
 // ── Stop the worker ───────────────────────────────────────────────────────────
 async function stopAll(){
   if (!confirm('Stop the JobPilot worker? All lanes halt within a few seconds. Your logged-in Chrome stays open.')) return;

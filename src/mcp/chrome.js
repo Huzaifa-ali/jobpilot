@@ -1,9 +1,10 @@
 // src/mcp/chrome.js — Chrome launcher, the PROVEN LEGACY WAY.
 // Launches a SEPARATE Chrome instance on a dedicated data dir + debug port.
 // It NEVER touches your day-to-day Chrome — both run side by side.
-// You log into LinkedIn, Gmail, Indeed, and Glassdoor in this debug Chrome ONCE.
-// Indeed and Glassdoor may show a security check. The person completes that
-// check in this window. This launcher does not solve it or change the fingerprint.
+// You log into LinkedIn and Gmail in this debug Chrome once.
+// Indeed and Glassdoor do not get a login form while this debug port is open.
+// Those two use openManualLoginWindow(): a normal window, Glassdoor with Google
+// first, then Indeed. This file does not solve a check or change the fingerprint.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -153,8 +154,8 @@ export async function launchChrome() {
           state: firstRun ? 'launched_fresh' : 'launched',
           firstRun,
           detail: firstRun
-            ? 'Opened a dedicated debug Chrome (separate from your normal Chrome). FIRST RUN — sign into LinkedIn, Gmail, Indeed, and Glassdoor in THIS window once. If Indeed or Glassdoor shows a security check, complete it yourself; JobPilot does not solve it.'
-            : 'Opened the dedicated debug Chrome. Sign into LinkedIn, Gmail, Indeed, and Glassdoor here once if you have not. A security check on Indeed or Glassdoor is yours to complete; JobPilot does not solve it. Your normal Chrome is untouched.',
+            ? 'Opened a dedicated debug Chrome (separate from your normal Chrome). FIRST RUN — sign into LinkedIn and Gmail in THIS window. For Glassdoor and Indeed, close this debug window and use the dashboard sign-in card: Glassdoor with Google first, then Indeed.'
+            : 'Opened the dedicated debug Chrome. LinkedIn and Gmail logins persist here. Glassdoor and Indeed sign-in is a normal window on this same profile: Glassdoor with Google first, then Indeed. Your normal Chrome is untouched.',
         };
       }
       await sleep(1000);
@@ -163,4 +164,39 @@ export async function launchChrome() {
   } finally {
     releaseLock();
   }
+}
+
+// Glassdoor's own login page, opened with no remote-debugging port. Indeed is
+// opened by the person only after this Google sign-in. Opening Indeed first
+// sticks on a check that has no form.
+export const GLASSDOOR_LOGIN_URL = 'https://www.glassdoor.com/profile/login_input.htm';
+
+/**
+ * Open the JobPilot profile as a normal Chrome window so a person can sign in
+ * to Glassdoor with Google, then Indeed with that same Google account.
+ * Refuses while port 9222 is open: a driven window does not show the form.
+ */
+export async function openManualLoginWindow() {
+  if (await portOpen()) {
+    return {
+      ok: false,
+      state: 'debugger_attached',
+      detail: 'The debug port is still open, so this profile is being driven. Stop the worker and close the JobPilot debug window, then try again.',
+    };
+  }
+  const chrome = findChrome();
+  if (!chrome) return { ok: false, state: 'no_chrome', detail: 'Chrome not found.' };
+  const child = spawn(chrome, [
+    `--user-data-dir=${DEBUG_PROFILE_DIR}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    GLASSDOOR_LOGIN_URL,
+  ], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return {
+    ok: true,
+    state: 'opened',
+    url: GLASSDOOR_LOGIN_URL,
+    detail: 'Opened Glassdoor in the JobPilot profile with no debug port. Sign in with Google. Then sign in to Indeed with that same Google account. Opening Indeed first sticks on a check with no form.',
+  };
 }

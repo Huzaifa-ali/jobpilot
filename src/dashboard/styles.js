@@ -39,6 +39,9 @@ input.s{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10
 .opt.rec{background:#14532d;border-color:#22c55e;color:#bbf7d0}
 .qbanner{background:#1a1407;border:1px solid #a16207;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#fcd34d}
 .loginbanner{background:#2a0a0a;border:1px solid #b91c1c;border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:14px;color:#fecaca}
+.boardlogin{background:#111a2e;border:1px solid #334155;border-left:3px solid #38bdf8;border-radius:8px;padding:12px 16px;margin-bottom:14px;line-height:1.5}
+.boardlogin ol{margin:8px 0 8px 18px}
+.boardlogin button{margin-right:8px}
 .loginbtn{display:inline-block;background:#ef4444;color:#fff;font-weight:700;padding:5px 14px;border-radius:7px;text-decoration:none;margin:0 4px}
 .loginbtn:hover{background:#dc2626}
 .consentbar{background:#0b1f17;border:1px solid #166534;border-radius:8px;padding:9px 14px;margin-bottom:12px;font-size:12.5px;color:#bbf7d0}
