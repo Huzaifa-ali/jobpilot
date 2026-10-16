@@ -29,6 +29,7 @@ import { buildQueries, buildListingQueries } from './mcp/queries.js';
 import { DATA } from './config.js';
 import { assessJob, cvAttachmentForJob, selectCvVariant } from './cv.js';
 import { getEasyApplyLimit, maybeRefreshEasyApplyLimit } from './limits.js';
+import { activeSources } from './apply-sources.js';
 
 const DRY = process.env.DRY === '1';
 // DATA-ONLY mode: when WORKER_DATA_ONLY=1 the worker runs ONLY the data lanes (scout + refresher)
@@ -273,12 +274,16 @@ async function scout() {
   let i = 0;
   while (running()) {
     try {
+      // Live board toggles, read once per loop (env → profile → all) so set_profile is honored
+      // on the next iteration. LI posts/jobs gate on `linkedin`, Indeed PK on `indeed`. HN/boards
+      // web discovery stays ALWAYS-ON (feeds email/form, no board dependence).
+      const active = activeSources(m => say('scout', m));
       const postQ = rankByUCB('post_query', buildQueries({ limit: 30 }));
       const jobQ = rankByUCB('job_query', buildListingQueries({ limit: 18 }));
 
       // 1) LinkedIn hiring POSTS — primary source (highest email yield), every loop.
       //    Skipped while LinkedIn needs a login (banner shown); re-probed every ~3 min.
-      if (!loginBackoff('LinkedIn')) {
+      if (active.has('linkedin') && !loginBackoff('LinkedIn')) {
         const q = postQ[0];
         beat('scout', `LI posts: ${q}`);
         const r = await liPosts(q, { datePosted: 'past-24h' });
@@ -310,7 +315,9 @@ async function scout() {
       //    Runs every loop, independent of LinkedIn login state (Indeed is its own session).
       //    Navigates ONCE to the Pakistan Easy-Apply results page (never a viewjob URL) and, on
       //    a Cloudflare wall, returns detail='wall' so we just move on and retry later.
-      try {
+      // Glassdoor has no scout discovery step today (external/board-pages routed only); when one
+      // is added it MUST be gated behind active.has('glassdoor'). Indeed PK discovery is gated here.
+      if (active.has('indeed')) try {
         const roles = getProfile().preferences?.roles || [];
         const iq = roles[i % Math.max(1, roles.length)] || 'AI Engineer';
         beat('scout', 'indeed: ' + iq);
@@ -323,7 +330,7 @@ async function scout() {
 
       // 4) LinkedIn job LISTINGS — secondary, only every OTHER loop (reduces LinkedIn load +
       //    throttle risk; posts and the web carry the pipeline). Also gated on login.
-      if (i % 2 === 0 && !loginBackoff('LinkedIn')) {
+      if (active.has('linkedin') && i % 2 === 0 && !loginBackoff('LinkedIn')) {
         const jq = jobQ[0];
         beat('scout', `LI jobs: ${jq}`);
         const geoIds = getProfile().preferences?.locationScope === 'country' ? ['101022442'] : ['92000000', '101022442'];
@@ -419,8 +426,15 @@ async function applier() {
     // submitting even while LinkedIn is throttled, interleaved newest-first with the existing
     // channels and under the same anti-burst cooldowns. LinkedIn's cooldown logic is untouched.
     const slot = turn++ % 3;
-    const wantEasy = slot === 0 && !liCooling && (!emailFirst || emailBacklog === 0);
-    const wantIndeed = !wantEasy && (slot === 1 || (slot === 0 && liCooling));
+    // Live board toggles (env JOBPILOT_APPLY_SOURCES → profile.preferences.applySources → all).
+    // Read every iteration so a set_profile change takes effect on the NEXT loop. A disabled
+    // board is simply never selected as the channel → it falls through to the next active channel
+    // and ultimately to `form`; no busy-spin, and the Easy-Apply cooldown/limit vars are untouched.
+    const active = activeSources(m => say('applier', m));
+    const liOn = active.has('linkedin');
+    const indeedOn = active.has('indeed');
+    const wantEasy = liOn && slot === 0 && !liCooling && (!emailFirst || emailBacklog === 0);
+    const wantIndeed = indeedOn && !wantEasy && (slot === 1 || (slot === 0 && liCooling));
     if (emailFirst && emailBacklog > 0 && !wantEasy && !wantIndeed) beat('applier', `email-first: ${emailBacklog} cold-email lead(s) pending`);
     const chan = wantEasy ? 'easy_apply' : wantIndeed ? 'indeed_easy' : 'form';
     const doEasy = chan === 'easy_apply';
@@ -706,6 +720,8 @@ if (!NO_EVOLVE) lanes.push(['evolver', evolver]);
 lanes.push(['refresher', refresher]);
 const laneNames = lanes.map(([n]) => n).join(' · ');
 say('main', `worker start${DRY ? ' (DRY)' : ''}${DATA_ONLY ? ' (DATA-ONLY — agent handles outreach)' : ''} — concurrent lanes: ${laneNames}`);
+// Display-only snapshot of the resolved active sources (lanes still re-resolve live each loop).
+say('main', `active apply sources: ${[...activeSources(m => say('main', m))].sort().join(', ')}`);
 say('main', `dashboard + Stop button live at http://127.0.0.1:${uiPort}`);
 beat('main', 'running', { uiPort, dataOnly: DATA_ONLY });
 // Watchdog: when the Stop flag appears (UI/CLI), exit the whole process promptly.
