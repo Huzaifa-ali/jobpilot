@@ -81,3 +81,36 @@ produced by `npm install` was reverted).
 - **Glassdoor:** discovery-only, routed external/needs_manual; there is intentionally NO Glassdoor
   submit channel (in-site Easy Apply → smartapply is refused). Documented in
   `docs/paths/glassdoor/path.md`.
+
+## Iteration 2 — review fixes (CHANGES_REQUESTED → addressed)
+
+Two findings from `review.json` were addressed:
+
+1. **BLOCKING — Indeed daily cap was inert.** The applier cap guard counts
+   `doneToday('indeed_easy')`, but submissions were logged with action type
+   `'indeed_easy_apply'`, so the strings never matched and `DAILY.indeed_easy = 60` never fired.
+   Fixed by logging the Indeed submission with `log('indeed_easy', ...)` so the cap type and log
+   type are identical — mirroring the LinkedIn branch (`li_easy_apply` for both). The 60/day
+   ceiling now enforces (every `applied` row counts as a `result='ok'` action of type
+   `indeed_easy`, which is exactly what `doneToday('indeed_easy')` sums). The 90–240s anti-burst
+   cooldown is unchanged.
+2. **NON-BLOCKING — unused import.** Removed the dead `setFields` import from
+   `src/mcp/indeed-easyapply.js` (only `getJob`, `alreadyApplied`, `setStatus` are used).
+
+Re-verification after the fixes (run from the worktree root on Windows/pwsh):
+
+```
+node --check src/mcp/indeed-easyapply.js   → exit 0 (no output)
+node --check src/worker.js                 → exit 0
+node --check mcp-server.js                 → exit 0
+node --check start.js                      → exit 0
+node -e "import('./src/mcp/indeed-easyapply.js').then(m=>console.log('exports:',Object.keys(m)))"
+                                           → exports: [ 'indeedEasyApply', 'indeedEasyApplyListings' ]
+DRY=1 RUN_MS=20000 JOBPILOT_NO_AUTOWORKER=1 node src/worker.js
+                                           → exit 0, clean stop, no crash/uncaughtException
+node scripts/ci-security-scan.mjs          → ✅ Security gate passed (exit 0)
+```
+
+Grep confirms consistency: the cap guard `capLeft('indeed_easy','indeed_easy')`
+(→ `doneToday('indeed_easy')`) and the submission `log('indeed_easy', ...)` now use the same
+action type.

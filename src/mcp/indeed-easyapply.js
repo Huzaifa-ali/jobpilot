@@ -19,7 +19,7 @@ import { getContext } from '../agent/browser.js';
 import { getProfile } from '../profile.js';
 import { textAnswer, choiceAnswer } from './answers.js';
 import { askLater, encounter } from '../evolve.js';
-import { getJob, alreadyApplied, setStatus, setFields } from '../tracker.js';
+import { getJob, alreadyApplied, setStatus } from '../tracker.js';
 import { score, relToIso } from './sources.js';
 
 const SLEEP = ms => new Promise(r => setTimeout(r, ms));
