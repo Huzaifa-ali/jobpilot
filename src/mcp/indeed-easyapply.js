@@ -29,6 +29,36 @@ const PK_RESULTS = (q) =>
   `https://pk.indeed.com/jobs?q=${encodeURIComponent(q)}&l=Pakistan&sort=date&sc=0kf%3Aattr(DSQF7)%3B`;
 
 const WALL_RE = /just a moment|additional verification|security check|humans only/i;
+
+// ── Discovery cadence + wall backoff (module-level, persists across scout cycles) ──
+// Normal discovery runs at most once per MIN_DISCOVERY_MS. On a Cloudflare wall we set a long
+// cooldown that grows per consecutive wall: 20 → 40 → 60 min (cap 60), and resets to 0 after a
+// clean cycle. nextCooldownMs is PURE (no I/O) so the schedule is unit-testable.
+const MIN_DISCOVERY_MS = 12 * 60 * 1000;          // ~12 min between normal Indeed discovery runs
+const WALL_STEP_MIN = 20;                          // first wall → 20 min
+const WALL_CAP_MIN = 60;                           // cap at 60 min
+const PERSISTENT_WALL_THRESHOLD = 2;               // # of 60-min-cap walls before flagging the user
+
+/**
+ * Pure. Given the number of CONSECUTIVE walls seen SO FAR (0 before the first wall), return the
+ * cooldown to apply for the wall just hit, in milliseconds. Schedule (minutes): 0→20, 20→40,
+ * 40→60, then capped at 60. A clean cycle resets the caller's counter to 0 (→ next wall is 20 again).
+ * @param {number} consecutiveWalls - walls already recorded before this one (>= 0)
+ * @returns {number} cooldown in ms
+ */
+export function nextCooldownMs(consecutiveWalls) {
+  const n = Math.max(0, Math.floor(Number(consecutiveWalls) || 0));
+  const minutes = Math.min(WALL_CAP_MIN, WALL_STEP_MIN * (n + 1));
+  return minutes * 60 * 1000;
+}
+
+// Mutable discovery state (one Indeed tab + cadence/backoff). Reset-on-success keeps walls rare.
+let _indeedPage = null;          // cached Playwright Page on a clean pk.indeed.com/jobs results view
+let _lastDiscoveryAt = 0;        // epoch ms of the last discovery attempt (min-interval gate)
+let _coolUntil = 0;              // epoch ms until which discovery is skipped (wall cooldown)
+let _consecutiveWalls = 0;       // # of consecutive walls (drives nextCooldownMs; reset on clean)
+let _capHits = 0;                // # of times cooldown reached the 60-min cap (→ persistent-wall flag)
+let _encounterLoggedThisCooldown = false; // ensures ONE encounter() per cooldown period, not per skip
 const SUBMIT_RE = /submit (your )?application|^submit$/i;
 const APPLY_NOW_RE = /^apply now$/i;
 const CONTINUE_RE = /^(continue|next|review)$/i;
@@ -402,76 +432,144 @@ export async function indeedEasyApply({ url, job = {} }) {
   }
 }
 
+// Reach the Pakistan results page the WALL-SAFE way: load the homepage, then drive the on-page
+// search box (fill what/where, click Find jobs) so results arrive via in-page interaction — never
+// a direct goto to /jobs?q=... (that walls). Returns { page, walled }. On a homepage wall, returns
+// { page, walled:true } without touching the search box. Mirrors docs/paths/indeed/path.md.
+async function warmNavigateToResults(bctx, query) {
+  const page = await bctx.newPage();
+  page.setDefaultTimeout(30000);
+  await page.goto('https://pk.indeed.com/', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {});
+  await SLEEP(3000 + Math.floor(Math.random() * 2000));   // jittered settle
+  if (await hitWall(page)) return { page, walled: true };
+  // Fill the on-page search and submit via the Find jobs button (in-page nav, no goto).
+  try {
+    const what = page.locator('#text-input-what').first();
+    const where = page.locator('#text-input-where').first();
+    if (await what.isVisible().catch(() => false)) { await what.fill(''); await what.type(query, { delay: 40 }); }
+    if (await where.isVisible().catch(() => false)) { await where.fill(''); await where.type('Pakistan', { delay: 40 }); }
+    const find = page.locator('button[type="submit"], button').filter({ hasText: /find jobs/i }).first();
+    if (await find.isVisible().catch(() => false)) {
+      await Promise.all([ page.waitForLoadState('domcontentloaded').catch(() => {}), find.click().catch(() => {}) ]);
+    } else {
+      await where.press('Enter').catch(() => {});
+    }
+    await SLEEP(3000 + Math.floor(Math.random() * 2000));
+  } catch {}
+  if (await hitWall(page)) return { page, walled: true };
+  return { page, walled: false };
+}
+
+// Scrape the visible Easy-Apply cards from a results page into leads. Factored out so BOTH a
+// reused tab and a freshly-warmed tab share one scraping path. Pure DOM read + mapping.
+async function scrapeResultCards(page) {
+  const cards = await page.evaluate(() => {
+    const sels = ['a.jcs-JobTitle', 'a[data-jk]', 'h2.jobTitle a'];
+    const seen = [];
+    for (const s of sels) for (const el of document.querySelectorAll(s)) if (!seen.includes(el)) seen.push(el);
+    return seen.map(a => {
+      const card = a.closest('.job_seen_beacon, .cardOutline, li, td.resultContent') || a.parentElement;
+      const jk = a.getAttribute('data-jk') || (a.href.match(/[?&]jk=([a-z0-9]+)/i) || [])[1] || '';
+      const role = (a.innerText || a.getAttribute('title') || '').trim();
+      const company = (card?.querySelector('[data-testid="company-name"], .companyName, span.companyName')?.innerText || '').trim();
+      const location = (card?.querySelector('[data-testid="text-location"], .companyLocation, div.companyLocation')?.innerText || '').trim();
+      const dateTxt = (card?.querySelector('[data-testid="myJobsStateDate"], .date, span.date')?.innerText || '').trim();
+      const text = (card?.innerText || '').replace(/\s+/g, ' ').trim();
+      return { jk, role, company, location, dateTxt, text };
+    }).filter(c => c.jk);
+  }).catch(() => []);
+  const out = []; const seen = new Set();
+  for (const c of cards) {
+    if (seen.has(c.jk)) continue; seen.add(c.jk);
+    const s = score(`${c.role} ${c.company} ${c.location} ${c.text}`, c.role);
+    out.push({
+      jk: c.jk, role: c.role, company: c.company, location: c.location || 'Pakistan',
+      url: `https://pk.indeed.com/viewjob?jk=${c.jk}`,     // canonical, DEDUP ONLY — never goto directly
+      applyUrl: `https://pk.indeed.com/viewjob?jk=${c.jk}`,
+      channel: 'indeed_easy', source: 'indeed_easy', portal: 'indeed',
+      posted_at: relToIso(c.dateTxt) || '', relevance: s.rel, skip: s.skip, skipWhy: s.why,
+      remote: /remote/i.test(c.location + ' ' + c.text),
+    });
+  }
+  return out;
+}
+
 /**
- * Discover Pakistan Easy-Apply listings. Navigates ONCE to PK_RESULTS(query) and scrapes each
- * visible job card into a lead (never direct viewjob goto). On a wall, returns { ok:false }.
- * Each lead: { jk, role, company, location, url, applyUrl, channel:'indeed_easy', ... }.
- * Signature: indeedEasyApplyListings(query, { pages = 1 } = {}) → { ok, leads, detail }.
+ * Discover Pakistan Easy-Apply listings — wall-resistant + self-throttling.
+ * Reuses ONE persistent results tab across cycles; warm-navigates (homepage → search box → Find
+ * jobs) only when no usable tab exists; NEVER goto()s /jobs?q= or viewjob?jk= directly. Throttles
+ * to once per MIN_DISCOVERY_MS even without a wall, and HARD-backs-off (20→40→60m, cap 60) on a
+ * Cloudflare wall, logging ONE encounter per cooldown period and surfacing a persistentWall flag
+ * when the cooldown has hit the 60-min cap PERSISTENT_WALL_THRESHOLD times.
+ * @returns {Promise<{ ok:boolean, status:'ok'|'cooling'|'wall', leads:object[], detail:string, persistentWall?:boolean, coolMs?:number }>}
  */
 export async function indeedEasyApplyListings(query, { pages = 1 } = {}) {
-  console.error('[indeed] listings: starting, query=' + query);
-  let ctx;
-  try { ctx = await getContext(); } catch (e) {
-    console.error('[indeed] listings: getContext() failed:', e.message);
-    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
-  }
-  let page;
-  try { page = await ctx.newPage(); } catch (e) {
-    console.error('[indeed] listings: newPage() failed:', e.message);
-    return { ok: false, leads: [], detail: `new page error: ${e.message}` };
-  }
-  page.setDefaultTimeout(30000);
-  const out = [];
-  try {
-    await page.goto(PK_RESULTS(query), { waitUntil: 'domcontentloaded', timeout: 40000 });
-    await SLEEP(3000);
-    if (await hitWall(page)) {
-      console.error('[indeed] listings: hit cloudflare wall — cooling down');
-      return { ok: false, leads: [], detail: 'wall' };
-    }
-    // Scrape each visible job card. Build url as the canonical viewjob URL for DEDUP ONLY —
-    // it is never navigated directly (that walls).
-    const cards = await page.evaluate(() => {
-      const sels = ['a.jcs-JobTitle', 'a[data-jk]', 'h2.jobTitle a'];
-      const seen = [];
-      for (const s of sels) for (const el of document.querySelectorAll(s)) if (!seen.includes(el)) seen.push(el);
-      return seen.map(a => {
-        const card = a.closest('.job_seen_beacon, .cardOutline, li, td.resultContent') || a.parentElement;
-        const jk = a.getAttribute('data-jk') || (a.href.match(/[?&]jk=([a-z0-9]+)/i) || [])[1] || '';
-        const role = (a.innerText || a.getAttribute('title') || '').trim();
-        const company = (card?.querySelector('[data-testid="company-name"], .companyName, span.companyName')?.innerText || '').trim();
-        const location = (card?.querySelector('[data-testid="text-location"], .companyLocation, div.companyLocation')?.innerText || '').trim();
-        const dateTxt = (card?.querySelector('[data-testid="myJobsStateDate"], .date, span.date')?.innerText || '').trim();
-        const text = (card?.innerText || '').replace(/\s+/g, ' ').trim();
-        return { jk, role, company, location, dateTxt, text };
-      }).filter(c => c.jk);
-    }).catch(() => []);
+  const now = Date.now();
 
-    const seen = new Set();
-    for (const c of cards) {
-      if (seen.has(c.jk)) continue; seen.add(c.jk);
-      const s = score(`${c.role} ${c.company} ${c.location} ${c.text}`, c.role);
-      out.push({
-        jk: c.jk,
-        role: c.role,
-        company: c.company,
-        location: c.location || 'Pakistan',
-        url: `https://pk.indeed.com/viewjob?jk=${c.jk}`,     // canonical, DEDUP ONLY — never goto directly
-        applyUrl: `https://pk.indeed.com/viewjob?jk=${c.jk}`,
-        channel: 'indeed_easy',
-        source: 'indeed_easy',
-        portal: 'indeed',
-        posted_at: relToIso(c.dateTxt) || '',
-        relevance: s.rel,
-        skip: s.skip,
-        skipWhy: s.why,
-        remote: /remote/i.test(c.location + ' ' + c.text),
-      });
+  // (A) Cooling after a wall → skip entirely, do NOT navigate or even open the browser.
+  if (now < _coolUntil) {
+    const mins = Math.ceil((_coolUntil - now) / 60000);
+    return { ok: false, status: 'cooling', leads: [], detail: `cooling ${mins}m (cloudflare)`, coolMs: _coolUntil - now };
+  }
+  // (B) Normal min-interval throttle → skip quietly until the window elapses.
+  if (now - _lastDiscoveryAt < MIN_DISCOVERY_MS) {
+    const mins = Math.ceil((MIN_DISCOVERY_MS - (now - _lastDiscoveryAt)) / 60000);
+    return { ok: false, status: 'cooling', leads: [], detail: `throttled ${mins}m (min-interval)` };
+  }
+  _lastDiscoveryAt = now;
+
+  console.error('[indeed] listings: starting, query=' + query);
+  let bctx;
+  try { bctx = await getContext(); } catch (e) {
+    console.error('[indeed] listings: getContext() failed:', e.message);
+    return { ok: false, status: 'wall', leads: [], detail: `browser error: ${e.message}` };
+  }
+
+  const markWall = async () => {
+    // Grow cooldown, count cap hits, log ONE encounter per cooldown period, maybe flag persistent.
+    const coolMs = nextCooldownMs(_consecutiveWalls);
+    _consecutiveWalls += 1;
+    _coolUntil = Date.now() + coolMs;
+    if (coolMs >= WALL_CAP_MIN * 60000) _capHits += 1;
+    const persistentWall = _capHits >= PERSISTENT_WALL_THRESHOLD;
+    if (!_encounterLoggedThisCooldown) {
+      _encounterLoggedThisCooldown = true;
+      await encounter('indeed_easy', 'discovery cloudflare wall — human must clear Cloudflare in Chrome', {
+        url: 'https://pk.indeed.com/', page: _indeedPage || null,
+      }).catch(() => {});
     }
-    console.error(`[indeed] listings: ${out.length} Easy-Apply leads`);
-    return { ok: true, leads: out, detail: `${out.length} listings` };
+    // Drop the (possibly walled) cached tab so the next run warm-navigates fresh.
+    try { if (_indeedPage) await _indeedPage.close().catch(() => {}); } catch {}
+    _indeedPage = null;
+    const mins = Math.round(coolMs / 60000);
+    console.error(`[indeed] listings: hit cloudflare wall — cooling down ${mins}m${persistentWall ? ' (persistent)' : ''}`);
+    return { ok: false, status: 'wall', leads: [], detail: `wall — cooling ${mins}m`, persistentWall, coolMs };
+  };
+
+  try {
+    // (C) Reuse the cached tab if it is still a clean results page.
+    let page = null, reused = false;
+    if (_indeedPage && !_indeedPage.isClosed?.()) {
+      try {
+        if (/pk\.indeed\.com\/jobs/.test(_indeedPage.url()) && !(await hitWall(_indeedPage))) { page = _indeedPage; reused = true; }
+      } catch { page = null; }
+    }
+    // (D) No usable tab → warm-navigate ONCE via the homepage search box.
+    if (!page) {
+      const wn = await warmNavigateToResults(bctx, query);
+      page = wn.page;
+      _indeedPage = page;                 // cache even if walled; markWall() closes it
+      if (wn.walled || await hitWall(page)) return await markWall();
+    }
+
+    // Clean cycle → scrape, reset ALL wall state.
+    const out = await scrapeResultCards(page);
+    _consecutiveWalls = 0; _capHits = 0; _encounterLoggedThisCooldown = false; _coolUntil = 0;
+    console.error(`[indeed] listings: ${out.length} Easy-Apply leads${reused ? ' (reused tab)' : ''}`);
+    return { ok: true, status: 'ok', leads: out, detail: `${out.length} listings` };
   } catch (e) {
     console.error('[indeed] listings: error:', e.message);
-    return { ok: false, leads: out, detail: e.message.slice(0, 200) };
-  } finally { await page.close().catch(() => {}); }
+    return { ok: false, status: 'wall', leads: [], detail: (e.message || '').slice(0, 200) };
+  }
+  // NOTE: do NOT close `page` here — the clean results tab is cached in _indeedPage for reuse.
 }

@@ -129,7 +129,7 @@ async function supervise(name, fn) {
 
 
 // When a site needs the user to (re)log in, surface a ONE-CLICK link on the dashboard.
-const LOGIN_URL = { LinkedIn: 'https://www.linkedin.com/login', Gmail: 'https://mail.google.com/' };
+const LOGIN_URL = { LinkedIn: 'https://www.linkedin.com/login', Gmail: 'https://mail.google.com/', Indeed: 'https://pk.indeed.com/' };
 function flagLogin(site, reason, url) {
   state.loginNeeded = state.loginNeeded || {};
   state.loginNeeded[site] = { url: url || LOGIN_URL[site] || '', reason: reason || '', ts: new Date().toISOString() };
@@ -322,8 +322,20 @@ async function scout() {
         const iq = roles[i % Math.max(1, roles.length)] || 'AI Engineer';
         beat('scout', 'indeed: ' + iq);
         const ri = await indeedEasyApplyListings(iq);
-        if (ri.ok) { const { n } = ingest(ri.leads); say('scout', `indeed "${iq}" +${n}`); }
-        else say('scout', `indeed "${iq}" ${ri.detail}`);
+        if (ri.status === 'ok') {
+          const { n } = ingest(ri.leads);
+          say('scout', `indeed "${iq}" +${n}`);
+          clearLogin('Indeed');                       // a clean cycle clears any stale banner
+        } else if (ri.status === 'cooling') {
+          // Cooling (wall backoff) OR min-interval throttle: do NOT navigate; just note and move on.
+          say('scout', `[indeed] ${ri.detail} — skipping`);
+        } else { // status === 'wall'
+          say('scout', `[indeed] ${ri.detail}`);
+          if (ri.persistentWall) {
+            flagLogin('Indeed', 'Indeed keeps hitting a Cloudflare check — open Indeed in the JobPilot Chrome window and clear the "Just a moment" check manually (do not let the worker solve it).');
+          }
+        }
+        // No per-step jitter needed beyond the module's own throttle, but keep the lane's pacing.
         await jitter(PACE.scout);
       } catch (e) { say('scout', 'indeed err ' + e.message.slice(0, 60)); }
       if (!running()) break;
