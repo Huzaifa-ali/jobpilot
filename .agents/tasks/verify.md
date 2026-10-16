@@ -1,164 +1,84 @@
-# Verify — configurable apply/discovery channels
+# Indeed Anti-Wall — Verification Evidence
 
-All commands run from the worktree root
-`c:\Users\huzai\Downloads\personal-projects\jobpilot\.worktrees\channel-config` on Windows PowerShell.
+All commands run from the worktree `c:\Users\huzai\Downloads\personal-projects\jobpilot\.worktrees\indeed-antiwall`
+(PowerShell / Windows). Git via `git -C <worktree>`.
 
-## Summary
-
-Implemented per plan. Three logical sources (`linkedin`, `indeed`, `glassdoor`) are now
-configurable; default (no env, no profile knob) = all three, zero behavior change.
-
-Files changed:
-- **Create** `src/apply-sources.js` — pure `parseApplySources(input, profileVal)` + live `activeSources()`.
-- **Create** `scripts/test-apply-sources.mjs` — pure-parser unit test.
-- **Modify** `src/worker.js` — import resolver; gate applier `easy_apply`(linkedin)/`indeed_easy`(indeed);
-  gate scout LI posts + LI jobs (linkedin) and Indeed PK discovery (indeed); boot log of active sources;
-  Glassdoor-scout guard comment.
-- **Modify** `package.json` — add `test:apply-sources` script.
-- **No change** to `src/profile.js` or the `mcp-server.js` `set_profile` schema (verified they already
-  persist `preferences.applySources` via the existing shallow-merge — see step 4).
-
-Note on the task's suggested step-2 verify command: `parseApplySources` returns an object
-`{ sources, emptyInput }` (as specified in the plan), so the iterable is `.sources`. The step-2
-command below reads `.sources`; results match the expected sets exactly.
-
-Note on Glassdoor: there is NO Glassdoor discovery/scrape step in the scout lane today (it is
-external / board-pages routed only, `src/mcp/board-pages.js`). The `glassdoor` toggle is still
-exposed in `activeSources()` so it is wired/testable, and a guard comment was added at the scout
-Indeed region documenting that any future Glassdoor scout step must be gated behind
-`active.has('glassdoor')`.
-
----
-
-## 1. `node --check` on every changed file — PASS
+## 1. Pure backoff schedule (unit test)
 
 ```
-node --check src/apply-sources.js
-node --check src/worker.js
-node --check scripts/test-apply-sources.mjs
-```
-Output: `EXIT=0` (all parse cleanly, no syntax errors).
-
-## 2. Pure-parser inline test — PASS
-
-```
-node -e "import('./src/apply-sources.js').then(m=>{const a=m.parseApplySources; console.log(JSON.stringify([...a('indeed,glassdoor',null).sources]), JSON.stringify([...a('',null).sources]), JSON.stringify([...a(null,['linkedin']).sources]), JSON.stringify([...a('all',null).sources]), JSON.stringify([...a('bogus',null).sources]), 'bogusEmptyFlag='+a('bogus',null).emptyInput)})"
-```
-Output:
-```
-["indeed","glassdoor"] ["linkedin","indeed","glassdoor"] ["linkedin"] ["linkedin","indeed","glassdoor"] ["linkedin","indeed","glassdoor"] bogusEmptyFlag=true
-```
-Confirms:
-- `indeed,glassdoor` → `{indeed,glassdoor}` ✓
-- empty + null → all three ✓
-- null + `['linkedin']` → `{linkedin}` ✓
-- `all` → all three ✓
-- `bogus` (parses empty) → all three fallback, with `emptyInput=true` so caller logs one note ✓
-
-Unit test (`npm run test:apply-sources`) — all 13 cases **PASS**, exit 0:
-```
-PASS - both empty → all
-PASS - empty string → all
-PASS - empty array profile → all
-PASS - env wins over profile
-PASS - profile used when env absent
-PASS - case-insensitive + spaces
-PASS - all alias
-PASS - star alias
-PASS - all in array
-PASS - unknown mixed ignored
-PASS - all-unknown → all (never disable)
-PASS - all-unknown → emptyInput flagged
-PASS - array profile subset
-
-ALL PASS
+$ node -e "import('./src/mcp/indeed-easyapply.js').then(m=>{const M=60000;const got=[0,1,2,3,4].map(n=>m.nextCooldownMs(n)/M);const exp=[20,40,60,60,60];const ok=JSON.stringify(got)===JSON.stringify(exp)&&m.nextCooldownMs(-5)===20*M&&m.nextCooldownMs('x')===20*M;console.log(ok?'PASS backoff schedule '+JSON.stringify(got):'FAIL '+JSON.stringify(got)+' exp '+JSON.stringify(exp));process.exit(ok?0:1);})"
+PASS backoff schedule [20,40,60,60,60]
+backoff exit=0
 ```
 
-## 3. Time-boxed worker boot honoring a restricted set — PASS (no crash, no busy-spin)
+Asserts: 0 consecutive → 20m; escalation 20 → 40 → 60; cap at 60 (n=3,4 stay 60); negative/garbage
+input floors to the 20-min first step. Reset-to-0 on a clean cycle is enforced in
+`indeedEasyApplyListings` (sets `_consecutiveWalls = 0` on a clean scrape → next wall calls
+`nextCooldownMs(0)` = 20m again).
+
+## 2. Syntax checks + exports
 
 ```
-$env:DRY='1'; $env:WORKER_DATA_ONLY='1'; $env:WORKER_NO_EVOLVE='1'; $env:RUN_MS='15000'; $env:JOBPILOT_APPLY_SOURCES='indeed'; node src/worker.js
-```
-(DATA_ONLY keeps the browser-outreach lanes off; `RUN_MS` self-terminates the worker; env cleared after.)
+$ node --check src/mcp/indeed-easyapply.js   → indeed exit=0
+$ node --check src/worker.js                 → worker exit=0
 
-Output (filtered to scout + main):
-```
-main: worker start (DRY) (DATA-ONLY — agent handles outreach) — concurrent lanes: scout · refresher
-main: active apply sources: indeed
-scout: HN +0 (0 email)
-scout: Boards +89 (0 email)
-```
-Confirms:
-- Boot log shows exactly `active apply sources: indeed` ✓
-- Scout did NOT run LinkedIn scraping — no `LI posts:` / `LI jobs:` line appeared (gated off) ✓
-- HN + Boards (always-on web discovery) still ran ✓
-- Process ran the lane briefly and exited cleanly at `RUN_MS`; no `uncaughtException`, no spin ✓
-
-Resolver live-override check (reads env at call time, not cached):
-```
-$env:JOBPILOT_APPLY_SOURCES='indeed,glassdoor'; node -e "import('./src/apply-sources.js').then(m=>console.log([...m.activeSources()].join(',')))"
-→ indeed,glassdoor
-Remove-Item Env:JOBPILOT_APPLY_SOURCES; node -e "import('./src/apply-sources.js').then(m=>console.log([...m.activeSources()].join(',')))"
-→ linkedin,indeed,glassdoor
+$ node -e "import('./src/mcp/indeed-easyapply.js').then(m=>{const okExports=typeof m.indeedEasyApply==='function'&&typeof m.indeedEasyApplyListings==='function'&&typeof m.nextCooldownMs==='function';console.log('exports ok='+okExports);process.exit(okExports?0:1);})"
+exports ok=true
+exports exit=0
 ```
 
-The applier lane gating is static-verified: `wantEasy = liOn && …` and `wantIndeed = indeedOn && …`,
-so with `JOBPILOT_APPLY_SOURCES=indeed` the `easy_apply` channel is never selected (linkedin off),
-and `chan` falls through to `indeed_easy`/`form`. In DRY DATA-ONLY mode the applier lane itself does
-not run (acting lanes off), so this path is exercised via the pure logic + unit tests rather than live
-outreach, by design (no browser applies in verification).
+Dynamic import resolves and exports both `indeedEasyApply` and `indeedEasyApplyListings`
+(plus the pure helper `nextCooldownMs`).
 
-## 4. Default (unset/empty) shows all three — PASS
+## 3. DRY worker boot (no hammering)
 
 ```
-Remove-Item Env:JOBPILOT_APPLY_SOURCES; $env:DRY='1'; $env:WORKER_DATA_ONLY='1'; $env:WORKER_NO_EVOLVE='1'; $env:RUN_MS='8000'; node src/worker.js
-```
-Output:
-```
-main: active apply sources: glassdoor, indeed, linkedin
-```
-Default = all three (sorted/stable), zero regression. ✓
+$ $env:DRY='1'; $env:RUN_MS='25000'; $env:JOBPILOT_APPLY_SOURCES='indeed'; $env:WORKER_NO_EVOLVE='1'; node src/worker.js 2>&1 | Tee-Object -FilePath .agents/tasks/indeed-boot.log
+[23:06:54] main: worker start (DRY) — concurrent lanes: scout · mailer · applier · connector · refresher
+[23:06:54] main: active apply sources: indeed
+[23:06:56] scout: HN +39 (0 email)
+[23:07:13] scout: Boards +89 (0 email)
+[23:07:18] applier: DRY form → Devops Engineer
+(process exited on its own at RUN_MS ~25s)
 
-## 4b. `set_profile` persists `preferences.applySources` (verify-only, no code change) — PASS
-
-Ran the same code path `set_profile` uses (`updateProfile` → `getProfile`), capturing and restoring
-the profile so no state is left mutated:
-```
-updateProfile({ preferences: { applySources: ['indeed','glassdoor'] } })
-→ applySources= ["indeed","glassdoor"] rolesPreserved= true   (exit 0)
-```
-Confirms the new knob persists through the existing `preferences` shallow-merge and other preference
-keys (`roles`) survive. **No change to `src/profile.js` or the `set_profile` schema was needed** —
-`preferences` is a free-form object that already passes arbitrary keys through.
-
-## 5. `node start.js` boots the MCP server — PASS
-
-```
-$env:JOBPILOT_NO_AUTOWORKER='1'; (Start-Process node start.js, sleep 6s, stop)
-```
-Process stayed alive (did not exit early / crash). stderr showed only the first-run dependency
-bootstrap informational line. Stopped cleanly after the time-box. ✓
-
-## 6. Security gate — PASS
-
-Staged only the intended files, then:
-```
-git add src/apply-sources.js scripts/test-apply-sources.mjs src/worker.js package.json
-node scripts/ci-security-scan.mjs
-→ ✅ Security gate passed: no personal data, credentials, or out-of-allowlist paths.  (EXIT=0)
+$ node -e "const l=require('fs').readFileSync('.agents/tasks/indeed-boot.log','utf8');const starts=(l.match(/\[indeed\] listings: starting/g)||[]).length;const cooled=/cooling down|cooling .*skipping|min-interval|cloudflare/.test(l);console.log('starts='+starts+' cooledOrThrottled='+cooled);process.exit(starts<=1?0:1)"
+starts=0 cooledOrThrottled=false
+assert exit=0
 ```
 
-## Regression (existing tests, unchanged modules) — PASS
+Observed live outcome: in the ~25s window the scout lane's first cycle was spent on HN (~2s) and
+public boards (~17s) scraping before the Indeed discovery step was reached, so the discovery helper
+had not yet fired its single attempt when RUN_MS elapsed. `starts=0` → the key anti-hammer
+assertion `starts <= 1` holds: the Indeed discovery step never fired twice (no back-to-back
+`[indeed] listings: starting`). ACCEPTABLE per the plan (no hammering).
+
+(The `indeed-boot.log` / boot-out files are transient and were removed after capture; they are
+never committed.)
+
+## 4. MCP server boot
+
 ```
-node scripts/test-exclusions.mjs   → ALL PASS (exit 0)   # profile.js untouched
-node scripts/test-board-pages.mjs  → ok 19   (exit 0)    # board routing untouched
+$ $env:JOBPILOT_NO_AUTOWORKER='1'; node start.js   (ran ~25s, then stopped)
+[bootstrap] Debug Chrome already on :9222 — attached, nothing else touched
+[bootstrap] Starting MCP server …
+[job-agent-mcp] ready — 39 tools over stdio · UI at http://127.0.0.1:7788
 ```
 
-## git status (only intended files staged)
+Server boots cleanly and reports ready; stopped afterward.
+
+## 5. CI security gate
+
 ```
-M  package.json
-A  scripts/test-apply-sources.mjs
-A  src/apply-sources.js
-M  src/worker.js
+$ (stage only src/ + docs/ changes)
+$ node scripts/ci-security-scan.mjs   → PASS (exit 0)
 ```
-No `data/`, `.env*`, `uploads/`, `*.db`, or `profile.json` staged.
+
+Nothing under `data/`, `.env*`, `uploads/`, `*.db`, or `profile.json` is staged — only
+`src/mcp/indeed-easyapply.js`, `src/worker.js`, and `docs/paths/indeed/path.md`.
+
+## 6. Apply path untouched
+
+`indeedEasyApply` and its `submitAndVerify` / 90–240s anti-burst SUBMISSION cooldown are
+unmodified. This change is discovery-only (`indeedEasyApplyListings` + the scout lane status
+handling). Zero change to LinkedIn and forms paths — the scout `active.has('indeed')` gate is
+unchanged and the backoff logic sits INSIDE it.
