@@ -123,6 +123,7 @@ How this is guaranteed:
    - Then they sign in to Indeed with that same Google account.
    - Do not solve the check. Do not hide or spoof the browser. Do not attach Playwright
      during sign-in or during Apply now. Full notes: `docs/board-login.md`.
+     Hop logs, one directory per site: `docs/paths/`.
    - Indeed **Apply now** is driven in that normal window, debug port closed. Use the
      page's own controls. Fill only real profile answers. If the country is wrong, change
      it. Stop on a captcha challenge. Count it only when the page says the application
