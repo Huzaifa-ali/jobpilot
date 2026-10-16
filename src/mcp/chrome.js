@@ -1,7 +1,9 @@
 // src/mcp/chrome.js — Chrome launcher, the PROVEN LEGACY WAY.
 // Launches a SEPARATE Chrome instance on a dedicated data dir + debug port.
 // It NEVER touches your day-to-day Chrome — both run side by side.
-// You log into LinkedIn + Gmail in this debug Chrome ONCE; it persists.
+// You log into LinkedIn, Gmail, Indeed, and Glassdoor in this debug Chrome ONCE.
+// Indeed and Glassdoor may show a security check. The person completes that
+// check in this window. This launcher does not solve it or change the fingerprint.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -151,8 +153,8 @@ export async function launchChrome() {
           state: firstRun ? 'launched_fresh' : 'launched',
           firstRun,
           detail: firstRun
-            ? 'Opened a dedicated debug Chrome (separate from your normal Chrome). FIRST RUN — log into LinkedIn + Gmail in THIS window once; it stays logged in for future runs.'
-            : 'Opened the dedicated debug Chrome (your LinkedIn/Gmail logins persist here). Your normal Chrome is untouched.',
+            ? 'Opened a dedicated debug Chrome (separate from your normal Chrome). FIRST RUN — sign into LinkedIn, Gmail, Indeed, and Glassdoor in THIS window once. If Indeed or Glassdoor shows a security check, complete it yourself; JobPilot does not solve it.'
+            : 'Opened the dedicated debug Chrome. Sign into LinkedIn, Gmail, Indeed, and Glassdoor here once if you have not. A security check on Indeed or Glassdoor is yours to complete; JobPilot does not solve it. Your normal Chrome is untouched.',
         };
       }
       await sleep(1000);
