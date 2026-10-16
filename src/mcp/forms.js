@@ -7,11 +7,19 @@ import { getContext } from '../agent/browser.js';
 import { getProfile } from '../profile.js';
 import { textAnswer, choiceAnswer, coverText } from './answers.js';
 import { encounter, askLater, learn } from '../evolve.js';
+import { classifyBoardPage } from './board-pages.js';
 import fs from 'fs';
 import { cvAttachmentForJob, selectCvVariant } from '../cv.js';
 import { setFields } from '../tracker.js';
 
 const SLEEP = ms => new Promise(r => setTimeout(r, ms));
+
+async function boardBail(page, url) {
+  const text = await page.evaluate(() => (document.body?.innerText || '').slice(0, 800)).catch(() => '');
+  const step = classifyBoardPage({ url, text });
+  if (!step || step.drive === 'company_site') return null;
+  return { ok: false, result: 'needs_manual', detail: step.detail, boardStep: step.step, finalUrl: url };
+}
 
 // intl-tel-input leaves its country list open (role=dialog) after a phone fill, and cookie
 // bars sit on the submit button. Either one swallows the click, so the form never confirms.
@@ -148,7 +156,7 @@ async function resolveGlassdoor(page) {
     const dest = popup.url();
     await popup.close().catch(() => {});
     if (dest && !/glassdoor\.com/.test(dest) && !/smartapply\.indeed\.com/.test(dest)) return dest;
-    if (/smartapply\.indeed\.com/.test(dest)) return null;   // bounced to reCAPTCHA path
+    if (/smartapply\.indeed\.com/.test(dest)) return null;   // Indeed Apply now — not this click
   }
 
   // Glassdoor navigates in the same tab sometimes.
@@ -459,6 +467,8 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
         await SLEEP(2500);
         // fall through and let the rest of applyForm handle the real ATS page
       } else {
+        const bail = await boardBail(page, finalUrl);
+        if (bail) return bail;
         await encounter('form', 'indeed.com — no external ATS link found; routing to connect/email', { url: finalUrl, page });
         return { ok: false, result: 'needs_manual', detail: 'indeed.com — route via connect or email', finalUrl };
       }
@@ -471,6 +481,8 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
         await page.goto(atsLink, { waitUntil: 'domcontentloaded' }).catch(() => {});
         await SLEEP(2500);
       } else {
+        const bail = await boardBail(page, page.url());
+        if (bail) return bail;
         await encounter('form', 'glassdoor.com — "Apply on company site" not found; routing to connect/email', { url: page.url(), page });
         return { ok: false, result: 'needs_manual', detail: 'glassdoor.com — route via connect or email', finalUrl };
       }
