@@ -78,6 +78,26 @@ export function renderBrainLoopBar(brain = {}, installed = []) {
 }
 
 /**
+ * Standing sign-in card. Indeed and Glassdoor only show a form in a normal
+ * window, and only if Glassdoor's Google sign-in happens first.
+ * @param {boolean} live - worker heartbeat is fresh
+ * @returns {string} HTML
+ */
+export function renderBoardLoginCard(live) {
+  return `<div class="boardlogin" id="board-login">
+  <b>Sign in to Glassdoor, then Indeed.</b>
+  <ol>
+    <li>${live ? 'Stop the worker, then close the JobPilot debug window so nothing is attached.' : 'The debug window has to be closed so nothing is attached.'}</li>
+    <li>Open Glassdoor on the JobPilot profile and choose <b>Continue with Google</b>.</li>
+    <li>Then sign in to Indeed with that same Google account. Opening Indeed first sticks on a check with no form.</li>
+  </ol>
+  <p class="dim">JobPilot does not solve that check and does not hide the browser. One worker only, and not while you are on this step.</p>
+  <button class="opt" type="button" onclick="openBoardLogin()">Open Glassdoor for sign-in</button>
+  <span id="boardLoginStatus" class="dim"></span>
+</div>`;
+}
+
+/**
  * Render the "questions pending" alert banner if any questions need answers.
  * @param {number} pendCount - number of pending questions
  * @returns {string} HTML (empty if no pending questions)

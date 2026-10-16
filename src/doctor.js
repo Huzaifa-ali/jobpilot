@@ -37,7 +37,7 @@ if (cdp.ok) {
   const sites = ['linkedin', 'indeed', 'glassdoor', 'gmail', 'x.com', 'wellfound'];
   const loggedIn = sites.filter(s => tabs.some(t => t.url?.includes(s)));
   if (loggedIn.length) console.log('  ' + ok(`Logged-in sites detected: ${loggedIn.join(', ')}`));
-  else console.log('  ' + warn('No job-site tabs open — open & log into LinkedIn/Indeed/Glassdoor/Gmail'));
+  else console.log('  ' + warn('No job-site tabs open — LinkedIn and Gmail in the debug window; Glassdoor with Google, then Indeed, in a normal window'));
 } else {
   console.log('  ' + bad(`Chrome debug port down (${cdp.reason})`));
   console.log(`     ${Y}→ Close Chrome, then run launch_chrome.bat${X}`);
