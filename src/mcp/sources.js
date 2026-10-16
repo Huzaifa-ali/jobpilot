@@ -129,11 +129,26 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
     await SLEEP(800);
     const raw = await page.evaluate(() => {
       const posts = [...document.querySelectorAll('div[componentkey*="FeedType"]')].filter(p => !p.parentElement.closest('div[componentkey*="FeedType"]'));
+      // Pull the FEED POST's own activity URN so we can build its canonical permalink.
+      // Prefer an explicit activity URN (stable, forms a valid /feed/update/ URL). Sources,
+      // in order: data-urn/data-id attributes on the container or any descendant, a timestamp
+      // link that points to /feed/update/urn:li:activity:…, then the raw innerHTML as fallback.
+      const activityUrn = node => {
+        const attr = [node, ...node.querySelectorAll('[data-urn],[data-id]')]
+          .map(n => n.getAttribute?.('data-urn') || n.getAttribute?.('data-id') || '')
+          .find(v => /urn:li:activity:\d+/.test(v));
+        if (attr) return (attr.match(/urn:li:activity:\d+/) || [])[0];
+        const permaLink = [...node.querySelectorAll('a[href*="/feed/update/urn:li:activity:"], a[href*="/posts/"]')]
+          .map(a => a.href).find(Boolean) || '';
+        const fromLink = (permaLink.match(/urn:li:activity:\d+/) || [])[0];
+        if (fromLink) return fromLink;
+        return (node.innerHTML.match(/urn:li:activity:\d+/) || node.innerHTML.match(/urn:li:(?:ugcPost|share):\d+/) || [])[0] || '';
+      };
       return posts.map(p => {
         const actor = [...p.querySelectorAll('a[href*="/in/"], a[href*="/company/"]')].find(a => a.innerText.trim());
         const txt = p.innerText.replace(/[ \t]+/g, ' ');
         const links = [...p.querySelectorAll('a[href]')].map(a => a.href);
-        const urn = (p.innerHTML.match(/urn:li:(?:activity|ugcPost|share):\d+/) || [])[0] || '';
+        const urn = activityUrn(p);
         return { actorUrl: actor ? actor.href.split('?')[0] : '', actorName: actor ? actor.innerText.split('•')[0].split('\n')[0].trim() : '', txt: txt.slice(0, 4000), links, urn, key: p.getAttribute('componentkey') };
       });
     });
@@ -158,12 +173,15 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const role = guessRole(bodyTxt);
       const s = score(bodyTxt, role);
       if (s.skip) skipped++;
+      // postUrl = the FEED POST's own permalink (for the comment fallback). Distinct from
+      // posterUrl (the author's profile). comment_interested needs this /feed/update/ URL.
       const postUrl = r.urn ? `https://www.linkedin.com/feed/update/${r.urn}/` : '';
+      console.error(`[scrape] liPosts: post "${(role || '?').slice(0, 40)}" — permalink ${postUrl ? `found (${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });

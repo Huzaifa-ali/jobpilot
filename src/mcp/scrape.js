@@ -195,6 +195,22 @@ export async function scrapeLinkedInPosts(query, { max = 25, timeoutMs = 35000 }
           posterName = (await post.locator('.update-components-actor__title span[aria-hidden="true"], .update-components-actor__name').first().textContent().catch(() => '') || '').trim();
         } catch {}
 
+        // The FEED POST's own permalink (for comment_interested). Pull the activity URN from
+        // a data-urn/data-id attribute or a /feed/update/ timestamp link, then build the
+        // canonical /feed/update/<urn>/ URL. Distinct from posterUrl (author profile).
+        let postUrl = '';
+        try {
+          const urn = await post.evaluate(n => {
+            const attr = [n, ...n.querySelectorAll('[data-urn],[data-id]')]
+              .map(x => x.getAttribute?.('data-urn') || x.getAttribute?.('data-id') || '')
+              .find(v => /urn:li:activity:\d+/.test(v));
+            if (attr) return (attr.match(/urn:li:activity:\d+/) || [])[0];
+            const link = [...n.querySelectorAll('a[href*="/feed/update/urn:li:activity:"], a[href*="/posts/"]')].map(a => a.href).find(Boolean) || '';
+            return (link.match(/urn:li:activity:\d+/) || n.innerHTML.match(/urn:li:activity:\d+/) || [])[0] || '';
+          }).catch(() => '');
+          if (urn) postUrl = `https://www.linkedin.com/feed/update/${urn}/`;
+        } catch {}
+
         // Apply links inside the post
         let formUrl = '', jobUrl = '';
         const links = await post.locator('a[href*="greenhouse"], a[href*="lever.co"], a[href*="ashby"], a[href*="workday"], a[href*="linkedin.com/jobs/view"]').all().catch(() => []);
@@ -231,8 +247,8 @@ export async function scrapeLinkedInPosts(query, { max = 25, timeoutMs = 35000 }
           availableChannels,
           suggestedMethod,
           apply_method: suggestedMethod,
-          url: found[0] ? `email:${found[0]}` : (formUrl || jobUrl || posterUrl),
-          email: found[0] || '', formUrl, jobUrl, posterUrl, posterName, asksDM,
+          url: found[0] ? `email:${found[0]}` : (formUrl || jobUrl || postUrl || posterUrl),
+          email: found[0] || '', formUrl, jobUrl, postUrl, posterUrl, posterName, asksDM,
           postText: text.slice(0, 600),
           portal: formUrl ? detectPortal(formUrl) : (jobUrl ? 'linkedin' : found[0] ? 'email' : 'linkedin'),
           remote: true, location: '', salary: '',
