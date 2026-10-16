@@ -507,7 +507,10 @@ async function applier() {
         }
         else if (r.result === 'closed') setStatus(j.url, 'skipped', 'closed');
         else if ((j.attempts || 0) + 1 >= 3) setStatus(j.url, 'failed', r.detail);
-        log('indeed_easy_apply', j.company, j.role, j.url, r.result === 'applied' ? 'ok' : /needs_answers/.test(r.result) ? 'manual' : /already|no_easy|closed/.test(r.result) ? 'skip' : 'fail', `${r.result}: ${r.detail}`);
+        // Log with the SAME action type the daily-cap guard counts (capLeft('indeed_easy',
+        // 'indeed_easy') → doneToday('indeed_easy')). Mirrors the LinkedIn branch, where cap type
+        // and log type are both 'li_easy_apply', so the DAILY.indeed_easy=60 ceiling actually fires.
+        log('indeed_easy', j.company, j.role, j.url, r.result === 'applied' ? 'ok' : /needs_answers/.test(r.result) ? 'manual' : /already|no_easy|closed/.test(r.result) ? 'skip' : 'fail', `${r.result}: ${r.detail}`);
         say('applier', `🟦 ${r.result} → ${j.role} @ ${j.company}`);
       } else {
         const target = j.apply_url || j.url;
