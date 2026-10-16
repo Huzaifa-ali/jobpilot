@@ -13,8 +13,8 @@ const row = (board, step, action, drive, detail) => ({ board, step, action, driv
 
 export function classifyBoardPage({ url = '', text = '', label = '' } = {}) {
   const blob = `${text}\n${label}`;
-  let host = '', path = '';
-  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase(); }
+  let host = '', path = '', search = '';
+  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase(); search = u.search.toLowerCase(); }
   catch { return null; }
   const board = host.endsWith('glassdoor.com') ? 'glassdoor' : 'indeed';
   if (CHALLENGE.test(blob)) return row(board, 'challenge', 'stop', 'none', 'A captcha challenge stops the apply.');
@@ -26,12 +26,18 @@ export function classifyBoardPage({ url = '', text = '', label = '' } = {}) {
     const hit = INDEED.find(([part]) => path.includes(part));
     return hit ? row('indeed', hit[1], hit[2], 'normal_window', hit[3]) : row('indeed', 'smartapply', 'stop', 'none', 'Unknown Indeed Apply page. Leave the debug port closed.');
   }
-  if (host.endsWith('indeed.com')) return row('indeed', 'job', 'apply_now', 'normal_window', 'Indeed Apply now stays in the normal window. Leave the debug port closed.');
+  if (host.endsWith('indeed.com')) {
+    if ((path === '/' || path === '') && search.includes('gnav-homepage--homepage-frontend')) {
+      return row('indeed', 'home', 'open_jobs', 'normal_window', 'Indeed jobs open at pk.indeed.com/?from=gnav-homepage--homepage-frontend.');
+    }
+    return row('indeed', 'job', 'apply_now', 'normal_window', 'Indeed Apply now stays in the normal window. Leave the debug port closed.');
+  }
   if (board !== 'glassdoor') return null;
   if (path.includes('/profile/login_input')) return row('glassdoor', 'login', 'continue_with_google', 'normal_window', 'Open Glassdoor login first and use Continue with Google.');
   if (/whitelabel error page/i.test(blob)) return row('glassdoor', 'error', 'retry', 'none', 'A Glassdoor whitelabel error is a retry, not a login wall.');
-  if (path.includes('/salaries/')) return row('glassdoor', 'salaries', 'skip', 'none', 'A Glassdoor salaries page is not an apply page.');
+  if (path.includes('/salaries/')) return row('glassdoor', 'salaries', 'browse_jobs', 'normal_window', 'Start at glassdoor.com/Salaries/index.htm and choose Browse jobs. That opens /Job/index.htm.');
   if (/easy apply/i.test(blob)) return row('glassdoor', 'easy_apply', 'refuse', 'none', 'Glassdoor Easy Apply stays refused.');
-  if (/apply on (employer|company) site/i.test(blob) || path.includes('/job/')) return row('glassdoor', 'jobs', 'company_site', 'company_site', 'Glassdoor Apply on employer site is the company-site path.');
+  if (/apply on (employer|company) site/i.test(blob)) return row('glassdoor', 'jobs', 'company_site', 'company_site', 'Glassdoor Apply on employer site is the company-site path.');
+  if (path.includes('/job/')) return row('glassdoor', 'jobs', 'jobs_open', 'normal_window', 'Glassdoor /Job/index.htm is the working jobs list, reached from Salaries via Browse jobs.');
   return null;
 }
