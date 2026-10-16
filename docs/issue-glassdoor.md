@@ -20,6 +20,8 @@ wall, and uses bot detection. Even logged in, "Apply" usually bounces to the emp
 ### Learned sign-in (2026-10-16)
 Glassdoor's login page works in a normal Chrome window on the JobPilot profile, with **Continue with Google**. That Google sign-in is also what lets Indeed sign in afterwards. The debug Chrome, with a worker attached, stops on "Humans only". See `docs/board-login.md`. `resolveGlassdoor()` follows an employer-site button only when the page is reachable, and it refuses Easy Apply / SmartApply.
 
+Signed-in job pages load in that normal window. A listing showed **Apply on employer site**, not an in-site Apply now. That employer-site button is the path already in `resolveGlassdoor()`. Easy Apply is still refused. Issue #2 stays open for a driven browser.
+
 ### Good first contribution
 Add a `glassdoor` branch in `forms.js` that clicks "Apply on company site" and hands the
 resulting ATS URL to `applyForm()` recursively.

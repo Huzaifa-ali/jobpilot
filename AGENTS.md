@@ -122,9 +122,14 @@ How this is guaranteed:
    - The user signs in to Glassdoor with **Continue with Google**.
    - Then they sign in to Indeed with that same Google account.
    - Do not solve the check. Do not hide or spoof the browser. Do not attach Playwright
-     during this step. Full notes: `docs/board-login.md`.
-   - After the user says both are signed in, remove `data/.stop` and start **one**
-     `npm run agent`. Company-site apply still only runs when the page is actually reachable.
+     during sign-in or during Apply now. Full notes: `docs/board-login.md`.
+   - Indeed **Apply now** is driven in that normal window, debug port closed. Use the
+     page's own controls. Fill only real profile answers. If the country is wrong, change
+     it. Stop on a captcha challenge. Count it only when the page says the application
+     was submitted, then `save_jobs` and `set_job_status`. Do not start `npm run agent`
+     while this window is the signed-in session. Port 9222 brings the check back.
+   - Glassdoor job pages load in the same window. **Apply on employer site** is the
+     company-site path. Glassdoor Easy Apply is still refused.
 4. **If `profileGaps` is non-empty → `open_onboarding`** and give the user the URL
    (`http://127.0.0.1:7788/onboard`). The form is **pre-filled and editable** — they upload/replace
    their CV by drag-and-drop and paste links, roles, skills, salary, work-authorization, and a
@@ -254,7 +259,8 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
   `profile.json`, `jobs.db`, `uploads/`, `evolution/`. Keep it there.
 - **Manual sign-in:** LinkedIn and Gmail once in the debug Chrome. Glassdoor and Indeed once
   in a normal window on that same profile, Glassdoor with Google first, then Indeed.
-  See `docs/board-login.md`. A security check is left for the user.
+  Indeed Apply now stays in that normal window. Do not attach the debug port for it.
+  See `docs/board-login.md`. A security check or a captcha challenge is left for the user.
 
 ## The always-on worker
 
