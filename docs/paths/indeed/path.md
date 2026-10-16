@@ -4,12 +4,14 @@ Normal window, debug port closed. Issue #1 stays open for the driven browser.
 
 | From | Option | To | Result |
 |---|---|---|---|
-| `https://pk.indeed.com/?from=gnav-homepage--homepage-frontend` | Apply now on a job card | `smartapply.indeed.com/beta/indeedapply/form/contact-info-module` | reached |
+| `https://pk.indeed.com/?from=gnav-homepage--homepage-frontend` | Button `full details of {title}`. The company is the link `{Company} (opens in a new tab)`. The city is the text next to that link. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
+| that pane | link `Apply now` | `contact-info-module`, or `review-module` when contact, location, and the uploaded CV are already stored | reached |
+| address bar `viewjob?jk=` | — | Additional Verification Required | stop. Leave the page. Do not click the check. |
 | contact-info-module, "Add your contact information" | Continue. The profile fields were already filled | `.../profile-location` | reached |
 | profile-location, "Add or update your address" | Combo "Select a country" to the profile country (the default was United States). City combo "City, province/territory". Leave postcode and street blank. Continue | `.../ooc-question` | reached |
 | ooc-question | Yes when already authorized in the job country. Continue | `.../resume-selection-module/resume-selection` | reached |
 | resume-selection | The uploaded profile CV, not "Use your Indeed Resume". Continue | `.../review-module` | reached |
-| review-module, 100% | Submit your application. Do not scroll inside the CV preview | `.../post-apply` | reached |
+| review-module, 100% | Submit your application. Invoke the button. A click can land on the CV preview. Do not scroll inside that preview | `.../post-apply` | reached |
 | post-apply | The page says "Your application has been submitted" | — | success |
 
 Stops: "Additional Verification Required" when the debug port is open. A captcha challenge. The reCAPTCHA notice under the form is not that challenge. The review page is not success.
