@@ -64,6 +64,27 @@ const SCAN = () => {
 // Job-board description pages (not real forms). Their apply link redirects to the true ATS.
 const BOARD_HOST = /(^|\.)(remoteok\.com|remotive\.com|jobicy\.com|himalayas\.app|weworkremotely\.com|wellfound\.com|arbeitnow\.com|aihackerjobs\.com|lnkd\.in|paperpk\.com|rozee\.pk|mustakbil\.com)$/i;
 const hostOf = u => { try { return new URL(u).hostname; } catch { return ''; } };
+const flog = (...a) => console.log('[forms]', ...a);
+
+// Known ATS / Google Forms targets a board/shortener may resolve to. Google Forms
+// (docs.google.com/forms, forms.gle) is a valid form target the engine can fill.
+const ATS_RE = /greenhouse|lever\.co|ashbyhq|workable|smartrecruiters|breezy|recruitee|bamboohr|jobvite|teamtailor|rippling|personio|forms\.gle|docs\.google\.com\/forms|google\.com\/forms|typeform|tally\.so/i;
+
+// LinkedIn's "You're leaving LinkedIn" interstitial carries the real destination on an
+// artdeco-button <a data-tracking-control-name="external_url_click">. It can be served on the
+// lnkd.in host itself (not only linkedin.com), so detect it by content, not by URL host.
+async function linkedinInterstitialTarget(page) {
+  return page.evaluate(() => {
+    const a = document.querySelector('a[data-tracking-control-name="external_url_click"]');
+    if (a?.href && !/(^|\.)linkedin\.com$|lnkd\.in/.test(new URL(a.href).hostname)) return a.href;
+    // Fallback: first off-domain anchor that is not a linkedin help/learn-more link.
+    for (const el of document.querySelectorAll('a[href]')) {
+      try { const h = new URL(el.href).hostname; if (/linkedin\.com$|lnkd\.in$/.test(h)) continue; } catch { continue; }
+      if (el.href.startsWith('http')) return el.href;
+    }
+    return null;
+  }).catch(() => null);
+}
 
 // ── Indeed: extract the real ATS link embedded in the posting, or fall back to
 //    connect/email so the lead still gets actioned rather than silently dropped.
@@ -138,6 +159,23 @@ async function resolveWeWorkRemotely(page) {
   return atsUrl || null;
 }
 
+// Cloudflare bot-wall ("Performing security verification" + cf-turnstile-response). It solves
+// itself with JS enabled; wait up to ~15s for the challenge markup to disappear so the real
+// board page can render its apply link.
+async function clearCloudflareChallenge(page) {
+  const onChallenge = () => page.evaluate(() =>
+    /performing security verification|verify you are (not a bot|human)|checking your browser/i.test(document.body?.innerText || '')
+    || !!document.querySelector('input[name="cf-turnstile-response"], #challenge-error-text')
+  ).catch(() => false);
+  if (!(await onChallenge())) return;
+  flog('cloudflare challenge detected on', hostOf(page.url()), '— waiting for it to clear');
+  for (let i = 0; i < 15; i++) {
+    await SLEEP(1000);
+    if (!(await onChallenge())) { flog('cloudflare challenge cleared'); await SLEEP(1500); return; }
+  }
+  flog('cloudflare challenge did NOT clear on', hostOf(page.url()));
+}
+
 async function toForm(page) {
   const u = page.url();
   if (/jobs\.lever\.co\/[^/]+\/[0-9a-f-]{36}$/.test(u)) { await page.goto(u + '/apply', { waitUntil: 'domcontentloaded' }); return; }
@@ -149,42 +187,17 @@ async function toForm(page) {
     // Wait up to 8 seconds total for the URL to navigate away from lnkd.in.
     await page.waitForURL(url => !url.includes('lnkd.in'), { timeout: 8000 }).catch(() => {});
     const landed = page.url();
+    flog('lnkd.in redirect landed on', landed);
 
-    // LinkedIn safety interstitial: "This link will take you to a page that's not on LinkedIn"
-    // The page shows an artdeco-button <a> with the real external URL. Click it to proceed.
-    if (/linkedin\.com/.test(landed)) {
-      const externalHref = await page.evaluate(() => {
-        // artdeco-button <a> on the interstitial page that carries the real destination
-        for (const a of document.querySelectorAll('a[href], a.artdeco-button')) {
-          if (a.href && !a.href.includes('linkedin.com') && a.href.startsWith('http')) return a.href;
-        }
-        return null;
-      }).catch(() => null);
-      if (externalHref) {
-        await page.goto(externalHref, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-        await SLEEP(2000);
-        return;
-      }
-      // Fallback: click the visible off-domain link on the interstitial
-      const interstitialLink = page.locator('a[href]:not([href*="linkedin.com"])').first();
-      if (await interstitialLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const [popup] = await Promise.all([
-          page.context().waitForEvent('page', { timeout: 4000 }).catch(() => null),
-          interstitialLink.click().catch(() => {}),
-        ]);
-        if (popup) {
-          await popup.waitForLoadState('domcontentloaded').catch(() => {});
-          const dest = popup.url();
-          await popup.close().catch(() => {});
-          if (dest && !dest.includes('linkedin.com')) {
-            await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-          }
-        } else {
-          await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
-        }
-        await SLEEP(2000);
-        return;
-      }
+    // LinkedIn "You're leaving LinkedIn" interstitial. Detect it by its content (the
+    // external_url_click button or the "not on LinkedIn" heading) rather than the URL host,
+    // because the interstitial is sometimes served on the lnkd.in host itself.
+    const target = await linkedinInterstitialTarget(page);
+    if (target) {
+      flog('followed LinkedIn interstitial →', target, ATS_RE.test(target) ? '(ATS/Google Form)' : '');
+      await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await SLEEP(2000);
+      return;
     }
 
     if (/lnkd\.in\//.test(landed)) {
@@ -211,7 +224,14 @@ async function toForm(page) {
       }
     }
     await SLEEP(2000);
+    if (/lnkd\.in\//.test(page.url())) flog('gave up: still on lnkd.in, no external target found');
   }
+
+  // Cloudflare "Performing security verification" / Turnstile interstitial (seen on himalayas.app
+  // and other boards). The challenge auto-solves in a few seconds, then the real page loads — so
+  // wait for it to clear before scanning for apply links instead of treating the challenge page
+  // (which has no apply link) as "no form found".
+  await clearCloudflareChallenge(page);
 
   const startHost = hostOf(page.url());
   const onBoard = BOARD_HOST.test(startHost);
@@ -258,7 +278,8 @@ async function toForm(page) {
       }
       return null;
     }).catch(() => null);
-    if (atsUrl) { await page.goto(atsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {}); await SLEEP(2500); return; }
+    if (atsUrl) { flog('himalayas.app → outbound apply link', atsUrl, ATS_RE.test(atsUrl) ? '(ATS)' : ''); await page.goto(atsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {}); await SLEEP(2500); return; }
+    flog('himalayas.app: no outbound apply link found (page may still be behind Cloudflare)');
   }
 
   // Jobicy.com — detect off-site apply pattern early.
@@ -268,8 +289,11 @@ async function toForm(page) {
   //   1. Check if there's a real embedded form (rare, template-version 1 layouts).
   //   2. Otherwise look for any direct off-domain apply link in the jv-application-body or
   //      in the page <head>/<meta> canonical; if found, navigate there directly.
-  //   3. If the auth gate is present (jv-open-apply-auth / jobs-offsite-apply-confirmation-banner),
-  //      return null so applyForm will report needs_manual — off-site auth flow, route via email/connect.
+  //   3. The "Continue on the employer website" widget: current jobicy templates (v6) render the
+  //      apply control client-side into `#_w_<jobid>` (data-t="Apply Now", data-native-apply-*),
+  //      and the real employer URL is produced only when it is clicked (opens a new tab). So the
+  //      resolver must CLICK that rendered button and capture the resulting popup/navigation.
+  //   4. Only if nothing resolves do we leave jobicy (applyForm reports no form → route elsewhere).
   if (/jobicy\.com/.test(startHost)) {
     const resolved = await page.evaluate(() => {
       // 1. Real embedded form on the page?
@@ -283,12 +307,17 @@ async function toForm(page) {
       for (const a of document.querySelectorAll('a[href]')) {
         if (/apply/i.test(a.innerText + a.getAttribute('aria-label') || '') && a.href && !a.href.includes('jobicy.com') && /^https?:\/\//.test(a.href)) return { type: 'ats', url: a.href };
       }
-      // 4. Auth-gated off-site apply (most common case) → signal needs_manual
+      // 4. "Continue on the employer website" native-apply widget (template v6): #_w_<id> with
+      //    data-t="Apply Now". Its URL is only produced on click, so flag it for a click-and-capture.
+      if (document.querySelector('[id^="_w_"][data-t], [data-native-apply-initialized], .jv-application-primary [data-m]')) return { type: 'widget' };
+      // 5. Older auth-gated off-site apply → signal needs_manual
       if (document.querySelector('#jv-open-apply-auth, .jv-apply-primary, .jobs-offsite-apply-confirmation-banner')) return { type: 'offsite' };
       return null;
     }).catch(() => null);
+    flog('jobicy.com resolved as', resolved?.type || 'none');
 
     if (resolved?.type === 'ats') {
+      flog('jobicy.com → direct ATS link', resolved.url);
       await page.goto(resolved.url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await SLEEP(2000);
       return; // continue to form-fill on the real ATS page
@@ -299,7 +328,37 @@ async function toForm(page) {
       await SLEEP(1000);
       return;
     }
+    if (resolved?.type === 'widget') {
+      // Click the rendered "Apply Now" control and capture the employer tab/navigation.
+      const applyWidget = page.locator('[id^="_w_"][data-t] a, [id^="_w_"][data-t] button, [id^="_w_"][data-t]')
+        .first()
+        .or(page.locator('.jv-application-primary').getByRole('button', { name: /apply/i }).first())
+        .or(page.locator('.jv-application-primary').getByRole('link', { name: /apply/i }).first());
+      if (await applyWidget.isVisible().catch(() => false)) {
+        const [popup] = await Promise.all([
+          page.context().waitForEvent('page', { timeout: 8000 }).catch(() => null),
+          applyWidget.click({ timeout: 6000 }).catch(() => {}),
+        ]);
+        if (popup) {
+          await popup.waitForLoadState('domcontentloaded').catch(() => {});
+          const dest = popup.url();
+          await popup.close().catch(() => {});
+          if (dest && !dest.includes('jobicy.com')) {
+            flog('jobicy.com → employer site via Apply Now widget', dest, ATS_RE.test(dest) ? '(ATS)' : '');
+            await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+            await SLEEP(2500);
+            return;
+          }
+        }
+        // Same-tab navigation fallback.
+        await SLEEP(2500);
+        if (!page.url().includes('jobicy.com')) { flog('jobicy.com → navigated to', page.url()); return; }
+      }
+      flog('jobicy.com: Apply Now widget did not resolve to an employer URL — routing elsewhere');
+      return;
+    }
     // offsite or unresolved — signal via returning without navigating; applyForm will detect no form
+    flog('jobicy.com: off-site/auth-gated apply, no fillable form — routing to email/connect');
     return;
   }
 
@@ -411,6 +470,7 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
     await toForm(page);
     await SLEEP(1500);
     const finalUrl = page.url();
+    flog('resolved', url, '→', finalUrl, 'host=' + hostOf(finalUrl));
 
     // ── Indeed: try to extract the real ATS link before bailing out.
     if (/indeed\.com/.test(finalUrl)) {
@@ -455,7 +515,8 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
     let n = await fillAll(page, unknown, job);
     if (n < 2) {
       // still on a job-board description page with no real form → hand off with the direct link
-      if (BOARD_HOST.test(hostOf(finalUrl))) { await encounter('form', 'job-board page, no external ATS form found on ' + hostOf(finalUrl), { url: finalUrl, page }); return { ok: false, result: 'needs_manual', detail: 'board page — open the apply link manually', finalUrl }; }
+      if (BOARD_HOST.test(hostOf(finalUrl))) { flog('gave up: still on board host', hostOf(finalUrl), '— no external ATS form resolved'); await encounter('form', 'job-board page, no external ATS form found on ' + hostOf(finalUrl), { url: finalUrl, page }); return { ok: false, result: 'needs_manual', detail: 'board page — open the apply link manually', finalUrl }; }
+      flog('gave up: no application form on', hostOf(finalUrl), '(fields found:', n + ')');
       await encounter('form', 'no application form found on ' + hostOf(finalUrl), { url: finalUrl, page });
       return { ok: false, result: 'no_form', detail: 'no application form found', finalUrl };
     }
