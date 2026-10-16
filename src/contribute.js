@@ -16,7 +16,7 @@ import path from 'path';
 import fs from 'fs';
 import { ROOT, DATA } from './config.js';
 import {
-  openEncounters, evolutionAudits, markAuditIssue, linkAuditPr,
+  openEncounters,
   recordEvolutionAudit,
 } from './evolve.js';
 
@@ -248,91 +248,41 @@ export async function contributeViaPR(message) {
   }
 }
 
-// The upstream repository already has this established label. Reuse it for
-// audit records instead of inventing a label that contributors may not be
-// permitted to create on the upstream repository.
-const AUDIT_LABEL = 'self-evolve';
-const AUDIT_FALLBACK_LABEL = 'enhancement';
-
-function auditTitle(a) { return `Audit: ${a.kind} · ${a.fingerprint}`; }
-
-function auditBody(a) {
-  return [
-    '## JobPilot self-evolution audit',
-    '',
-    `- Event type: **${a.kind}**`,
-    '- Fingerprint: `' + a.fingerprint + '`',
-    `- Observations: **${a.occurrences}**`,
-    `- Code/PR follow-up: **${a.needs_code ? 'required or expected' : 'not required'}**`,
-    `- Local status: **${a.status}**`,
-    a.pr_url ? `- Linked PR: ${a.pr_url}` : '- Linked PR: pending / none',
-    '',
-    'This issue is an anonymized audit record. It intentionally excludes application questions, answers, CV/profile data, job URLs, screenshots, credentials, and personal contact data.',
-  ].join('\n');
-}
+// Fingerprint audits and "self-evolve audit" notes are a history, not the work
+// queue. The open issue list is only work that still needs a fix.
+const AUDIT_ISSUE_TITLE = /^(audit:|self-evolution audit:|self-evolve audit:)/i;
 
 /**
- * Mirror the local learning ledger to dedicated GitHub audit issues.
- * Audit issues use the repository's established `self-evolve` label. Open
- * events stay open; resolved events are closed with their resolution and PR
- * link.
+ * Close audit issues that are still open. Does not create issues and does not
+ * reopen them when the local ledger still says "open" — that flag means the
+ * event was seen, not that a maintainer must act. Real blockers are filed by
+ * {@link fileBlockerIssues} under their own titles.
+ * @returns {Promise<{created:string[], reopened:string[], closed:string[], linked:string[], reason?:string}>}
  */
-export async function syncEvolutionAuditIssues({ prUrl = '' } = {}) {
-  const { initDB } = await import('./tracker.js');
-  await initDB();
+export async function syncEvolutionAuditIssues() {
   const info = await repoInfo();
   const repo = info.upstream || info.origin;
   if (!repo) return { created: [], reopened: [], closed: [], linked: [], reason: 'repository identity unavailable' };
-  const created = [], reopened = [], closed = [], linked = [];
-  let issueLabel = AUDIT_LABEL;
-  try {
-    const labels = JSON.parse(await gh('label', 'list', '--repo', repo, '--limit', '100', '--json', 'name'));
-    if (!labels.some(x => x.name === AUDIT_LABEL)) {
-      await gh('label', 'create', AUDIT_LABEL, '--repo', repo, '--color', '6f42c1', '--description', 'Anonymized self-evolution audit trail');
-    }
-  } catch {
-    // Contributors may create issues but lack permission to create repository labels.
-    // Use an existing non-PR label and retain the stable Audit: title prefix.
-    issueLabel = AUDIT_FALLBACK_LABEL;
-  }
-
+  const closed = [];
   let remote = [];
-  try { remote = JSON.parse(await gh('issue', 'list', '--repo', repo, '--state', 'all', '--limit', '500', '--json', 'number,title,url,state,labels')); } catch (e) {
-    return { created, reopened, closed, linked, reason: e.message };
+  try {
+    remote = JSON.parse(await gh('issue', 'list', '--repo', repo, '--state', 'open', '--limit', '500', '--json', 'number,title,url'));
+  } catch (e) {
+    return { created: [], reopened: [], closed, linked: [], reason: e.message };
   }
-  const byTitle = new Map(remote.filter(x => String(x.title || '').startsWith('Audit: ')).map(x => [x.title, x]));
-  const audits = evolutionAudits(300);
-
-  for (const a of audits) {
-    const title = auditTitle(a);
-    let issue = byTitle.get(title);
-    if (!issue) {
-      try {
-        const url = await gh('issue', 'create', '--repo', repo, '--title', title, '--label', issueLabel, '--body', auditBody(a));
-        const m = String(url).match(/issues\/(\d+)/);
-        markAuditIssue(a.fingerprint, m ? +m[1] : null, url);
-        issue = { number: m ? +m[1] : null, title, url, state: 'OPEN' };
-        created.push(url);
-      } catch { continue; }
-    } else if (!a.issue_number || a.issue_url !== issue.url) {
-      markAuditIssue(a.fingerprint, issue.number, issue.url);
-    }
-
-    if (prUrl && a.needs_code && a.pr_url !== prUrl) {
-      linkAuditPr(a.fingerprint, prUrl);
-      try { await gh('issue', 'comment', String(issue.number), '--repo', repo, '--body', `Linked self-evolution PR: ${prUrl}`); linked.push(issue.url); } catch {}
-    }
-    const state = String(issue.state || '').toLowerCase();
-    if (a.status === 'resolved' && state === 'open') {
-      try {
-        await gh('issue', 'close', String(issue.number), '--repo', repo, '--comment', `Resolved locally: ${a.resolution || 'resolution recorded in JobPilot evolution memory.'}${a.pr_url ? `\n\nLinked PR: ${a.pr_url}` : ''}`);
-        closed.push(issue.url);
-      } catch {}
-    } else if (a.status === 'open' && state === 'closed') {
-      try { await gh('issue', 'reopen', String(issue.number), '--repo', repo, '--comment', 'Reopened automatically: this audit fingerprint was observed again.'); reopened.push(issue.url); } catch {}
-    }
+  for (const issue of remote) {
+    if (!AUDIT_ISSUE_TITLE.test(issue.title || '')) continue;
+    try {
+      await gh(
+        'issue', 'close', String(issue.number),
+        '--repo', repo,
+        '--reason', 'not planned',
+        '--comment', 'Closed by JobPilot: this is an audit record, not an open bug. The issue list stays limited to work that still needs a fix. Encounter history stays in the local evolution ledger. A real unsolved blocker keeps its own issue title.',
+      );
+      closed.push(issue.url);
+    } catch { /* already closed or no permission */ }
   }
-  return { created, reopened, closed, linked };
+  return { created: [], reopened: [], closed, linked: [] };
 }
 
 /**
@@ -416,68 +366,257 @@ export async function linkedIssuesFor(repo, pr) {
 }
 
 // ── Usefulness assessment (label-independent, testable, pure) ───────────────────
+// Auto-merge is only for a small, named, single-purpose fix. Anything else stays
+// open with a comment, or is closed when it cannot be reviewed as one change.
+// Author and the self-evolve label are never an input. See CONTRIBUTING.md.
 
-/**
- * Decide whether a PR is worth merging — on the merits of the change itself, NOT its labels or
- * author. Pure function: given the PR's size/files and its linked issues, returns a verdict.
- *
- *   • empty (0 files or 0 net churn)                       → not useful, close as redundant.
- *   • touches sensitive / non-allowlisted paths            → not useful (CI would fail anyway).
- *   • real churn in allowlisted code/docs                  → useful; strengthened if it addresses
- *                                                            an OPEN linked issue.
- *
- * Labels are deliberately never consulted here.
- *
- * @param {{changedFiles?:number, additions?:number, deletions?:number, files?:Array<{path:string}|string>}} pr
- * @param {Array<{number:number,state:string,closing?:boolean}>} [linkedIssues]
- * @returns {{useful:boolean, empty:boolean, addressesOpenIssue:boolean, reason:string}}
- */
-export function assessUsefulness(pr, linkedIssues = []) {
-  const changedFiles = pr.changedFiles || 0;
-  const churn = (pr.additions || 0) + (pr.deletions || 0);
+/** Changed lines (adds + deletes) above which a PR waits for a maintainer. */
+export const AUTO_MERGE_MAX_CHURN = 80;
 
-  if (changedFiles === 0 || churn === 0) {
-    return { useful: false, empty: true, addressesOpenIssue: false, reason: 'no net changes against base (empty/redundant)' };
-  }
+const GENERIC_PR_TITLE = /^\s*(chore\(self-evolve\):\s*sync improvements|automated self-evolution)\b/i;
 
-  const paths = (pr.files || []).map(f => (typeof f === 'string' ? f : f.path)).filter(Boolean);
-  if (paths.length) {
-    const bad = paths.filter(p => DENY.some(re => re.test(p)) || !ALLOW.some(re => re.test(p)));
-    if (bad.length) {
-      return { useful: false, empty: false, addressesOpenIssue: false,
-        reason: 'touches sensitive/non-allowlisted paths (would fail the security gate): ' + bad.slice(0, 6).join(', ') };
-    }
-  }
+/** @param {string} [title] */
+export function isGenericPrTitle(title = '') {
+  return GENERIC_PR_TITLE.test(String(title || ''));
+}
 
-  const addressesOpenIssue = linkedIssues.some(i => (i.state || '').toUpperCase() === 'OPEN');
-  const parts = [`${changedFiles} file(s), ${churn} line(s) in allowlisted paths`];
-  if (linkedIssues.length) {
-    const closing = linkedIssues.filter(i => i.closing).map(i => '#' + i.number);
-    const ctx     = linkedIssues.filter(i => !i.closing).map(i => '#' + i.number);
-    if (closing.length) parts.push(`closes ${closing.join(', ')}`);
-    if (ctx.length)     parts.push(`refs ${ctx.join(', ')}`);
-  }
-  return { useful: true, empty: false, addressesOpenIssue, reason: parts.join('; ') };
+/** @param {string} p */
+function isDocOrTest(p) {
+  return /^(README|AGENTS|CONTRIBUTING|CODING_STANDARDS)\.md$/.test(p)
+    || p.startsWith('docs/')
+    || p.startsWith('scripts/test-')
+    || p.startsWith('.github/');
 }
 
 /**
- * Review EVERY open PR from EVERYONE — any contributor, any fork, any label (there are several
- * contributing agents out there, not just this one). Each PR is judged purely on usefulness
- * (see {@link assessUsefulness}) against its actual diff + the issues it links/references
- * ({@link linkedIssuesFor}) — labels and author are deliberately ignored. Acts on each:
- *   • first approve any pending fork CI so the `review` security gate actually runs;
- *   • empty / redundant PR (0 net changes)      → close with a note.
- *   • not-useful PR (e.g. sensitive paths)       → left open + flagged with the reason.
- *   • useful PR whose `review` gate passed        → merge (merge commit). Uses --admin to force
- *                                                   past a stuck/mechanical required check —
- *                                                   ONLY after the security gate is confirmed green.
- *   • useful PR whose `review` gate FAILED        → left open + flagged. The `review` job is the
- *                                                   data-safety + security gate; that one is NEVER
- *                                                   bypassed, even for a useful PR from anyone.
- *   • useful PR with CI pending/absent            → CI (re)triggered via approval; retried next cycle.
+ * Code areas a pull request touches. Docs and tests do not count as a second
+ * problem. `src/mcp/easyapply.js` → `mcp/easyapply.js`.
+ * @param {string[]} paths
+ * @returns {string[]}
+ */
+export function productionAreas(paths = []) {
+  const areas = new Set();
+  for (const p of paths) {
+    if (!p || isDocOrTest(p)) continue;
+    if (p.startsWith('src/mcp/')) areas.add('mcp/' + p.split('/')[2]);
+    else if (p.startsWith('src/dashboard/')) areas.add('dashboard');
+    else if (p.startsWith('src/')) areas.add(p.split('/').slice(0, 2).join('/'));
+    else areas.add(p);
+  }
+  return [...areas];
+}
+
+/** @param {{files?:Array<{path:string}|string>}} pr */
+export function prPaths(pr) {
+  return (pr.files || []).map(f => (typeof f === 'string' ? f : f.path)).filter(Boolean);
+}
+
+/** @param {{additions?:number, deletions?:number}} pr */
+export function prChurn(pr) {
+  return (pr.additions || 0) + (pr.deletions || 0);
+}
+
+function issueNote(linkedIssues) {
+  const closing = linkedIssues.filter(i => i.closing).map(i => '#' + i.number);
+  const ctx = linkedIssues.filter(i => !i.closing).map(i => '#' + i.number);
+  const bits = [];
+  if (closing.length) bits.push(`closes ${closing.join(', ')}`);
+  if (ctx.length) bits.push(`refs ${ctx.join(', ')}`);
+  return bits.length ? ` (${bits.join('; ')})` : '';
+}
+
+function verdict(partial, linkedIssues = []) {
+  const addressesOpenIssue = linkedIssues.some(i => (i.state || '').toUpperCase() === 'OPEN');
+  return {
+    useful: partial.action === 'merge',
+    empty: !!partial.empty,
+    action: partial.action,
+    addressesOpenIssue,
+    reason: partial.reason,
+    comment: partial.comment,
+  };
+}
+
+/**
+ * Decide what to do with a pull request. Labels and author are ignored.
  *
- * Runs against `info.upstream` — for the main repo that is itself; for a fork it attempts the
- * parent (merges there simply fail gracefully into `skipped` if we lack push rights).
+ *   • empty                                      → close
+ *   • sensitive or non-allowlisted paths         → request changes
+ *   • bundled / generic multi-area sync          → close, ask for one fix per PR
+ *   • generic snapshot of a file another PR owns → close as duplicate
+ *   • worker.js (outreach lanes)                 → hold for a brain review
+ *   • churn above {@link AUTO_MERGE_MAX_CHURN}   → hold for a brain review
+ *   • smaller patch under a larger rewrite       → hold until the rewrite lands
+ *   • one named fix inside the size bar          → merge once CI is green
+ *
+ * @param {{number?:number, title?:string, changedFiles?:number, additions?:number, deletions?:number, files?:Array<{path:string}|string>}} pr
+ * @param {Array<{number:number, state?:string, closing?:boolean}>} [linkedIssues]
+ * @param {Array<{number:number, title?:string, files?:Array, additions?:number, deletions?:number}>} [peers] other open PRs
+ * @returns {{useful:boolean, empty:boolean, action:'merge'|'close'|'request_changes'|'hold', addressesOpenIssue:boolean, reason:string, comment:string}}
+ */
+export function assessUsefulness(pr, linkedIssues = [], peers = []) {
+  const changedFiles = pr.changedFiles || prPaths(pr).length || 0;
+  const churn = prChurn(pr);
+  const paths = prPaths(pr);
+  const note = issueNote(linkedIssues);
+  const title = pr.title || '';
+
+  if (changedFiles === 0 || churn === 0) {
+    return verdict({
+      empty: true, action: 'close',
+      reason: 'no net changes against base (empty/redundant)',
+      comment: 'Thanks for the pull request. It has no changes against the base branch, so it is already merged or empty. Closing it. A follow-up that fixes one specific bug is welcome.',
+    }, linkedIssues);
+  }
+
+  if (paths.length) {
+    const bad = paths.filter(p => DENY.some(re => re.test(p)) || !ALLOW.some(re => re.test(p)));
+    if (bad.length) {
+      return verdict({
+        action: 'request_changes',
+        reason: 'touches sensitive/non-allowlisted paths: ' + bad.slice(0, 6).join(', '),
+        comment: 'Thanks for the pull request. It cannot be merged because it touches paths JobPilot never publishes (`data/`, credentials, drafts, logs, screenshots, or the database): '
+          + bad.slice(0, 6).join(', ')
+          + '. Please drop those files and resubmit only the code or doc fix. Personal data stays on the machine that scraped it.',
+      }, linkedIssues);
+    }
+  }
+
+  const areas = productionAreas(paths);
+  const generic = isGenericPrTitle(title);
+  const others = (peers || []).filter(p => p.number !== pr.number);
+
+  if (areas.length >= 3 || changedFiles >= 8 || (generic && areas.length >= 2)) {
+    return verdict({
+      action: 'close',
+      reason: `bundle of ${areas.length} code area(s) across ${changedFiles} file(s); one problem per pull request`,
+      comment: [
+        'Thanks for sending this in. JobPilot cannot review a bundled sync as one change, so this pull request is closed rather than merged.',
+        '',
+        `It touches ${changedFiles} file(s)${areas.length ? ` across ${areas.slice(0, 8).join(', ')}` : ''}. A title like \`chore(self-evolve): sync improvements\` does not say which bug is fixed, and the description often names only one of the files.`,
+        '',
+        'Please open one pull request per fix:',
+        '- title the behavior, for example `fix(gmail): retry send when compose stays open`',
+        '- change only the module that fix needs, plus a test when you have one',
+        '- say what was broken and how you checked it',
+        '',
+        'The security review stays required. Author and the self-evolve label are not reasons to merge. Focused follow-ups will be reviewed.',
+      ].join('\n'),
+    }, linkedIssues);
+  }
+
+  if (generic) {
+    const specific = others.find(p => !isGenericPrTitle(p.title) && productionAreas(prPaths(p)).some(a => areas.includes(a)));
+    if (specific) {
+      return verdict({
+        action: 'close',
+        reason: `generic snapshot overlaps #${specific.number}, which names the change`,
+        comment: `Thanks. This is an automated snapshot and it overlaps #${specific.number} ("${specific.title || 'the other pull request'}"), which describes the same area. Closing this copy so there is one review. Please put any extra fix onto #${specific.number}, or open a new pull request whose title names one bug.`,
+      }, linkedIssues);
+    }
+    const earlierTwin = others.find(p => p.number < (pr.number || 0) && isGenericPrTitle(p.title) && productionAreas(prPaths(p)).some(a => areas.includes(a)));
+    if (earlierTwin) {
+      return verdict({
+        action: 'close',
+        reason: `duplicate generic snapshot of #${earlierTwin.number}`,
+        comment: `Thanks. This is a duplicate of #${earlierTwin.number} (same automated title, same area). Closing this copy. Please resubmit as one named fix if the work is still needed.`,
+      }, linkedIssues);
+    }
+    return verdict({
+      action: 'request_changes',
+      reason: 'generic self-evolve title does not name the bug',
+      comment: 'Thanks. The diff may be useful, but the title `chore(self-evolve): sync improvements` does not say what it fixes, so it will not be auto-merged. Please retitle it to the behavior (`fix(area): what changed`) and drop any edit that is not part of that one fix.',
+    }, linkedIssues);
+  }
+
+  if (paths.includes('src/worker.js')) {
+    return verdict({
+      action: 'hold',
+      reason: 'worker.js changes are not auto-merged; outreach stays with the brain',
+      comment: [
+        'Thanks. This changes `src/worker.js`, so it waits for a maintainer review instead of auto-merging.',
+        '',
+        'The supported worker is data-only (`WORKER_DATA_ONLY=1`): it scrapes leads and does not email, apply, or connect. Those choices belong to the brain. Please do not add send, apply, or connect behavior to the worker lanes. A scout-only bugfix can stay open for review; say that in the title.',
+      ].join('\n'),
+    }, linkedIssues);
+  }
+
+  if (churn > AUTO_MERGE_MAX_CHURN) {
+    return verdict({
+      action: 'hold',
+      reason: `${churn} changed lines is above the auto-merge bar of ${AUTO_MERGE_MAX_CHURN}`,
+      comment: `Thanks. This looks like a single area (${areas.join(', ') || 'docs'}), but it changes ${churn} lines, which is above the auto-merge bar of ${AUTO_MERGE_MAX_CHURN}. It stays open for a maintainer to read. If part of the diff is a separate fix, please split that into its own pull request so the rest can land faster.`,
+    }, linkedIssues);
+  }
+
+  const primary = areas[0];
+  if (primary) {
+    const larger = others
+      .map(p => ({ p, areas: productionAreas(prPaths(p)), churn: prChurn(p) }))
+      .find(x => x.areas.includes(primary) && x.areas.length <= 2 && x.churn >= Math.max(100, churn * 3) && x.churn > churn);
+    if (larger) {
+      return verdict({
+        action: 'hold',
+        reason: `overlaps larger #${larger.p.number} on ${primary}`,
+        comment: `Thanks. This is a focused change to \`${primary}\`, and it also overlaps #${larger.p.number}, which rewrites that file. Please rebase onto it after it merges, or say why this patch is independent and should land first. It will not be auto-merged while that larger pull request is open.`,
+      }, linkedIssues);
+    }
+  }
+
+  const where = areas.length ? areas.join(', ') : 'docs/tests';
+  return verdict({
+    action: 'merge',
+    reason: `${changedFiles} file(s), ${churn} line(s) in ${where}${note}`,
+    comment: '',
+  }, linkedIssues);
+}
+
+/**
+ * True when the latest review on this commit asks for changes.
+ * An approval that comes after a request-changes review clears the block.
+ * Reviews on older commits do not block a new head.
+ * @param {Array<{state?:string, submittedAt?:string, commit?:{oid?:string}}>} reviews
+ * @param {string} [headOid]
+ */
+export function mergeBlockedByReview(reviews = [], headOid = '') {
+  const list = (reviews || []).filter(r => {
+    const oid = r.commit?.oid || r.commitID || '';
+    return !headOid || !oid || oid === headOid;
+  });
+  if (!list.length) return false;
+  const latest = [...list].sort((a, b) => String(a.submittedAt || '').localeCompare(String(b.submittedAt || ''))).at(-1);
+  return String(latest?.state || '').toUpperCase() === 'CHANGES_REQUESTED';
+}
+
+/**
+ * A later APPROVED review from someone other than the author lets a held PR merge.
+ * Request-changes on the current commit still wins until a newer approval exists.
+ * @param {{action:string}} verdict
+ * @param {Array<{state?:string, submittedAt?:string, author?:{login?:string}, commit?:{oid?:string}}>} reviews
+ * @param {string} headOid
+ * @param {string} [authorLogin]
+ */
+export function maintainerApproved(verdict, reviews = [], headOid = '', authorLogin = '') {
+  if (verdict.action === 'merge') return true;
+  if (verdict.action !== 'hold') return false;
+  if (mergeBlockedByReview(reviews, headOid)) return false;
+  const list = (reviews || []).filter(r => {
+    const oid = r.commit?.oid || '';
+    return !headOid || !oid || oid === headOid;
+  });
+  const latest = [...list].sort((a, b) => String(a.submittedAt || '').localeCompare(String(b.submittedAt || ''))).at(-1);
+  const login = latest?.author?.login || '';
+  return String(latest?.state || '').toUpperCase() === 'APPROVED' && !!login && login !== authorLogin;
+}
+
+/**
+ * Review every open pull request from every contributor. Labels and author are
+ * ignored. {@link assessUsefulness} decides close / request changes / hold / merge.
+ * The `review` security gate is never bypassed. `--admin` is used only after that
+ * gate is SUCCESS, and only to get past a stuck mechanical required check.
+ *
+ * A changes-requested review on the current commit blocks merge until a newer
+ * approval. A hold can merge when a maintainer other than the author approves it.
  *
  * @param {object} [opts]
  * @param {boolean} [opts.dryRun] - assess + log intended actions, but perform no close/merge/update.
@@ -495,7 +634,7 @@ export async function reviewAndMergePRs({ dryRun = false } = {}) {
       'pr', 'list',
       '--repo', target,
       '--state', 'open',
-      '--json', 'number,title,body,files,statusCheckRollup,url,additions,deletions,changedFiles,author,isCrossRepository,mergeable,mergeStateStatus',
+      '--json', 'number,title,body,files,statusCheckRollup,url,additions,deletions,changedFiles,author,isCrossRepository,mergeable,mergeStateStatus,headRefOid,reviews,comments',
       '--limit', '50',
     );
     const prs = JSON.parse(raw || '[]');
@@ -506,25 +645,45 @@ export async function reviewAndMergePRs({ dryRun = false } = {}) {
       const origin = pr.isCrossRepository ? 'fork' : 'branch';
       const tag = `#${pr.number} (${origin} by ${who})`;
 
-      // Usefulness is judged on the diff + the issues the PR addresses — never on labels/author.
       const issues = await linkedIssuesFor(target, pr).catch(() => []);
-      const verdict = assessUsefulness(pr, issues);
-      plan.push({ number: pr.number, url: pr.url, author: who, verdict });
+      const decision = assessUsefulness(pr, issues, prs);
+      plan.push({ number: pr.number, url: pr.url, author: who, verdict: decision });
 
-      // Empty / redundant PR — nothing to merge, close it politely.
-      if (verdict.empty) {
-        if (dryRun) { closed.push(`${tag} — WOULD CLOSE (${verdict.reason})`); continue; }
+      if (decision.action === 'close') {
+        if (dryRun) { closed.push(`${tag} — WOULD CLOSE (${decision.reason})`); continue; }
         try {
-          await gh('pr', 'close', String(pr.number), '--repo', target,
-            '--comment', `Auto-closed by JobPilot: no changes against the base branch (already merged / redundant). Thanks ${who}!`);
-          closed.push(`${tag} — closed (${verdict.reason})`);
+          await gh('pr', 'close', String(pr.number), '--repo', target, '--comment', decision.comment);
+          closed.push(`${tag} — closed (${decision.reason})`);
         } catch { skipped.push(`${tag} — close failed`); }
         continue;
       }
 
-      // Not useful (e.g. touches sensitive/non-allowlisted paths) → flag, do not merge.
-      if (!verdict.useful) {
-        skipped.push(`${tag} — not useful: ${verdict.reason}`);
+      if (decision.action === 'request_changes' || decision.action === 'hold') {
+        const head = pr.headRefOid || '';
+        const notes = [...(pr.reviews || []), ...(pr.comments || [])];
+        const already = notes.some(r => {
+          const oid = r.commit?.oid || '';
+          return /jobpilot-review/.test(r.body || '') && (!oid || !head || oid === head);
+        });
+        if (!dryRun && !already && decision.comment) {
+          const body = `<!-- jobpilot-review -->\n${decision.comment}`;
+          try {
+            if (decision.action === 'request_changes') {
+              await gh('pr', 'review', String(pr.number), '--repo', target, '--request-changes', '--body', body);
+            } else {
+              await gh('pr', 'comment', String(pr.number), '--repo', target, '--body', body);
+            }
+          } catch { /* comment failure must not merge the PR */ }
+        }
+        const approved = maintainerApproved(decision, pr.reviews || [], head, pr.author?.login || '');
+        if (!approved) {
+          skipped.push(`${tag} — ${decision.action}: ${decision.reason}`);
+          continue;
+        }
+      }
+
+      if (mergeBlockedByReview(pr.reviews || [], pr.headRefOid || '')) {
+        skipped.push(`${tag} — changes requested on the current commit`);
         continue;
       }
 
@@ -542,17 +701,17 @@ export async function reviewAndMergePRs({ dryRun = false } = {}) {
       const noChecksYet = checks.length === 0;
 
       if (reviewFailed) {
-        skipped.push(`${tag} — useful (${verdict.reason}) but the review security gate is NOT green → not bypassed`);
+        skipped.push(`${tag} — ${decision.reason}; review security gate is NOT green → not bypassed`);
         continue;
       }
       if (!reviewPassed) {
-        skipped.push(`${tag} — useful (${verdict.reason}); awaiting review gate${!noChecksYet ? ' (in progress)' : (approvedCI.length ? ' (CI approved, will run)' : '')} → retry next cycle`);
+        skipped.push(`${tag} — ${decision.reason}; awaiting review gate${!noChecksYet ? ' (in progress)' : (approvedCI.length ? ' (CI approved, will run)' : '')}`);
         continue;
       }
 
       // ── From here the security gate is CONFIRMED GREEN. Only now may we merge. ──
       if (pr.mergeable === 'CONFLICTING') {
-        conflicts.push(`${tag} — useful + security-passed, needs conflict resolution`);
+        conflicts.push(`${tag} — passed review, needs conflict resolution`);
         continue;
       }
       if (/BEHIND/i.test(pr.mergeStateStatus || '')) {
@@ -560,20 +719,18 @@ export async function reviewAndMergePRs({ dryRun = false } = {}) {
         try { await gh('api', '--method', 'PUT', `repos/${target}/pulls/${pr.number}/update-branch`); } catch {}
       }
 
-      if (dryRun) { merged.push(`${tag} — WOULD MERGE (${verdict.reason})`); continue; }
+      if (dryRun) { merged.push(`${tag} — WOULD MERGE (${decision.reason})`); continue; }
 
-      // Useful + security gate green + mergeable → merge. --admin forces past a stuck/mechanical
-      // required check, and is used ONLY here, after the security gate is confirmed SUCCESS.
+      // --admin forces past a stuck mechanical check only after the security gate is SUCCESS.
       try {
         await gh('pr', 'merge', '--merge', '--admin', String(pr.number), '--repo', target);
-        merged.push(`${tag} — merged (${verdict.reason})`);
+        merged.push(`${tag} — merged (${decision.reason})`);
       } catch {
-        try { await gh('pr', 'merge', '--merge', '--auto', String(pr.number), '--repo', target); merged.push(`${tag} — auto-merge armed (${verdict.reason})`); }
+        try { await gh('pr', 'merge', '--merge', '--auto', String(pr.number), '--repo', target); merged.push(`${tag} — auto-merge armed (${decision.reason})`); }
         catch { skipped.push(`${tag} — merge blocked`); }
       }
     }
 
-    // After merging PRs, pull the new commits into our local branch
     if (merged.length && !dryRun) await syncBranch().catch(() => {});
     return { merged, closed, skipped, conflicts, approvedCI, plan };
   } catch (e) {
@@ -601,7 +758,7 @@ export async function fileBlockerIssues({ minCount = 3 } = {}) {
   let existing = [];
   try {
     existing = JSON.parse(
-      await gh('issue', 'list', '--state', 'all', '--limit', '200', '--json', 'title')
+      await gh('issue', 'list', '--state', 'all', '--limit', '1000', '--json', 'title')
     ).map(i => i.title);
   } catch {
     return { filed: [], reason: 'gh not available / not authed' };
@@ -635,7 +792,8 @@ export async function fileBlockerIssues({ minCount = 3 } = {}) {
  *   2. File GitHub issues for recurring blockers
  *   3. Open a CI-gated `self-evolve` PR for any local code/doc changes
  *        Fork → cross-fork PR to upstream.  Main → PR to its own main (never a direct push).
- *   4. Main repo only: review + merge every open self-evolve PR that has passed CI.
+ *   4. Main repo only: review every open PR and merge the ones that pass the
+ *      usefulness bar and the security gate.
  *
  * ON by default (profile.consent.autoContribute defaults true).
  * Toggle off from the dashboard. Pass force:true to override the consent flag.

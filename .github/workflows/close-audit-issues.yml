@@ -1,0 +1,31 @@
+name: Close audit issues
+
+# Fingerprint audits are a history, not the work queue. Old contributors still
+# open "Audit: …" issues from copies of the repo that predate the closer in
+# src/contribute.js. Close those on arrival so the open list stays unsolved work.
+# Real blockers use their own titles and are left open.
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  close-audit:
+    runs-on: ubuntu-latest
+    if: |
+      startsWith(github.event.issue.title, 'Audit:') ||
+      startsWith(github.event.issue.title, 'self-evolve audit:') ||
+      startsWith(github.event.issue.title, 'self-evolution audit:') ||
+      startsWith(github.event.issue.title, 'Self-evolution audit:')
+    steps:
+      - name: Close audit record
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --reason "not planned" \
+            --comment "Closed because this is an audit record, not an unsolved bug. The open issue list is only work that still needs a fix. Encounter history stays in the local evolution ledger."
