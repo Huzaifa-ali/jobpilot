@@ -91,7 +91,7 @@ export function renderBoardLoginCard(live) {
     <li>Open Glassdoor on the JobPilot profile and choose <b>Continue with Google</b>.</li>
     <li>Then sign in to Indeed with that same Google account. Opening Indeed first sticks on a check with no form.</li>
   </ol>
-  <p class="dim">JobPilot does not solve that check and does not hide the browser. One worker only, and not while you are on this step.</p>
+  <p class="dim">JobPilot does not solve that check and does not hide the browser. One worker only, and not while you are on this step. After both are signed in, Indeed Apply now is completed in this same window. Leave the debug port closed. A captcha challenge stops the apply.</p>
   <button class="opt" type="button" onclick="openBoardLogin()">Open Glassdoor for sign-in</button>
   <span id="boardLoginStatus" class="dim"></span>
 </div>`;

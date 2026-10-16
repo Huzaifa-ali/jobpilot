@@ -7,7 +7,7 @@
 Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
 the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
 
-**Stable release: [v3.0.0](https://github.com/maazbin/jobpilot/releases/tag/v3.0.0).** Main is now **3.1.0**, the next line.
+**Stable release: [v3.0.0](https://github.com/maazbin/jobpilot/releases/tag/v3.0.0).** Main is now **3.2.0**. Indeed Apply now works in the normal signed-in window.
 
 [![Stable](https://img.shields.io/badge/release-v3.0.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.0.0)
 [![MIT License](https://img.shields.io/badge/license-MIT-14532d.svg)](LICENSE)
@@ -150,8 +150,8 @@ This is the line we will keep. New work happens after this tag.
 
 These are real walls. JobPilot records them and routes around them. It does not pretend to slip past a bot check.
 
-- **Indeed** — a driven browser gets a check with no form ([#1](https://github.com/maazbin/jobpilot/issues/1)). Sign-in works after Glassdoor. See below.
-- **Glassdoor** — a driven browser stops on "Humans only" ([#2](https://github.com/maazbin/jobpilot/issues/2)). A normal window plus Google sign-in works.
+- **Indeed** — a driven browser gets a check with no form ([#1](https://github.com/maazbin/jobpilot/issues/1)). Sign-in works after Glassdoor. Apply now then works in that normal window. See below.
+- **Glassdoor** — a driven browser stops on "Humans only" ([#2](https://github.com/maazbin/jobpilot/issues/2)). A normal window plus Google sign-in works. Job pages there show Apply on employer site.
 - **Workday, iCIMS, Taleo, SuccessFactors** — account-gated, multi-step ATS ([#3](https://github.com/maazbin/jobpilot/issues/3))
 - **Some job-board redirects** — Arbeitnow, We Work Remotely, Himalayas ([#4](https://github.com/maazbin/jobpilot/issues/4))
 - **hCaptcha on Lever** — the submit button is found. A captcha challenge still needs a person.
@@ -184,6 +184,8 @@ Sign in to these two with the worker stopped and the debug window closed. The da
 2. Then sign in to Indeed with that same Google account.
 
 Opening Indeed first sticks on a check with no form. JobPilot does not solve that check. The notes for the next agent are in [`docs/board-login.md`](docs/board-login.md).
+
+Keep the debug port closed after sign-in. Indeed **Apply now** is the in-site form in that same window. One application reached "Your application has been submitted". A captcha challenge still stops the apply. The debug-port path is unchanged, so issues #1 and #2 stay open.
 
 ![Dashboard sign-in card](docs/dashboard-board-login.png)
 

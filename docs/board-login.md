@@ -18,4 +18,17 @@ The dashboard and the setup page both have **Open Glassdoor for sign-in**. That 
 
 ## After they are signed in
 
-Start one data worker with `npm run agent`. LinkedIn and Gmail stay on the debug Chrome. Company-site links (`resolveIndeed` / `resolveGlassdoor` in `src/mcp/forms.js`) run only when a job page is actually reachable. Easy Apply and SmartApply are still refused. Issues #1 and #2 stay open for applying while a browser is being driven.
+Keep port 9222 closed while applying. Starting the debug Chrome or the worker attaches to this profile and the check comes back.
+
+Indeed **Apply now** (the in-site form) is completed in this normal window. On 2026-10-16 one application reached the page "Your application has been submitted". The steps that worked:
+
+- Drive the page's own controls. Do not attach Playwright.
+- The contact step was already filled from the Indeed profile. Check it.
+- If the country is wrong, change it before continuing. Do not invent a postal code for another country.
+- Choose the uploaded CV when it is the profile CV.
+- Answer work-authorization from the profile. For a job in a country where the person is already authorized, that answer is yes.
+- Submit only when the review is right. Success is the submitted page, not the click.
+- Stop if a captcha challenge is shown. The small reCAPTCHA notice under the form is not that challenge.
+- Record the job with `save_jobs` and `set_job_status` so it is not sent again.
+
+Glassdoor job pages load in the same window. The button seen there was **Apply on employer site**, which is the company-site path. Glassdoor Easy Apply is still refused. Issues #1 and #2 stay open for applying while a browser is being driven on port 9222.
