@@ -76,8 +76,10 @@ Private helpers don't need JSDoc but should have a one-line comment if non-obvio
 
 - `contributeRound()` always **syncs upstream first** (pulls new version) before staging.
 - **Fork**  → `contributeViaPR()` opens a cross-fork PR to upstream.
-- **Main**  → `reviewAndMergePRs()` reviews and merges open `self-evolve`-labelled PRs
-  whose CI has passed, then syncs local branch.
+- **Main**  → `reviewAndMergePRs()` merges a pull request only when `assessUsefulness()`
+  says it is one named fix inside the size bar and the `review` security check is green.
+  Bundles and duplicates are closed with a comment. Larger diffs and `worker.js` changes
+  wait. The label and the author are ignored. See `CONTRIBUTING.md`.
 - The `safeStage()` guard aborts if any DENY-listed path is staged. Never bypass it.
 
 ## 9. Pacing / politeness
