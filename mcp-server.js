@@ -329,6 +329,14 @@ const TOOLS = [
     handler: async ({ lead }) => {
       const profile = getProfile();
       const { apply_method, email, formUrl, jobUrl, posterUrl, role, company } = lead;
+      // The post's own permalink (comment fallback). Accept camelCase (fresh scrape) or
+      // snake_case (DB row). Must be a /feed/update/ or /posts/ URL — never a profile URL.
+      const postUrlOf = l => { const u = l.postUrl || l.post_url || ''; return /linkedin\.com\/(feed\/update|posts\/)/i.test(u) ? u : ''; };
+      const maybeComment = async (l, rl, co) => {
+        const pu = postUrlOf(l);
+        if (!pu) return null;
+        return await timed('comment_interested', pu, { postUrl: pu }, profile.limits.maxAttemptsPerJob, async () => commentInterested({ postUrl: pu, role: rl, company: co })).catch(() => null);
+      };
       // Dedup guards
       if (email && isFakeEmail(email)) return ok({ action: 'skip', reason: 'fake_email', detail: email });
       if (email && isBadEmail(email)) return ok({ action: 'skip', reason: 'bad_email', detail: email });
@@ -366,9 +374,16 @@ const TOOLS = [
         let r = await timed('linkedin_dm', posterUrl, { posterUrl }, profile.limits.maxAttemptsPerJob, async () => linkedinDM({ profileUrl: posterUrl, role, company }));
         if (r.result === 'no_dm') {
           r = await timed('linkedin_connect', posterUrl, { posterUrl }, profile.limits.maxAttemptsPerJob, async () => linkedinConnect({ profileUrl: posterUrl, role, company }));
+          await maybeComment(lead, role, company);
           return ok({ action: 'connect', url: posterUrl, result: r });
         }
+        await maybeComment(lead, role, company);
         return ok({ action: 'dm', url: posterUrl, result: r });
+      }
+      // No poster to DM/connect, but we have the post permalink → comment "Interested".
+      if ((method === 'connect' || method === 'none') && postUrlOf(lead)) {
+        const r = await maybeComment(lead, role, company);
+        if (r) return ok({ action: 'comment', url: postUrlOf(lead), result: r });
       }
       return ok({ action: 'skip', reason: 'no_actionable_method', detail: apply_method });
     },

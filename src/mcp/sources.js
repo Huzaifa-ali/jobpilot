@@ -115,6 +115,26 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
     return { ok: false, leads: [], detail: `new page error: ${e.message}` };
   }
   page.setDefaultTimeout(30000);
+  // LinkedIn's SDUI content-search strips the post's activity URN from the hydrated DOM, so the
+  // only reliable source for each post's permalink is the raw search response. Collect the
+  // distinct activity URNs in first-appearance order from every /search/results/content payload;
+  // the posts render in that same order, so post[i] → netUrns[i] gives the real permalink.
+  const netUrns = [];
+  const seenUrn = new Set();
+  page.on('response', async resp => {
+    try {
+      if (!/\/search\/results\/content/.test(resp.url())) return;
+      const body = await resp.text().catch(() => '');
+      if (!body || !/urn:li:activity:\d+/.test(body)) return;
+      // Prefer fsd_update wrappers (one per rendered update); fall back to bare activity URNs.
+      const re = /urn:li:fsd_update:\(urn:li:activity:(\d+),/g;
+      let m, any = false;
+      while ((m = re.exec(body))) { any = true; if (!seenUrn.has(m[1])) { seenUrn.add(m[1]); netUrns.push(m[1]); } }
+      if (!any) for (const id of body.match(/urn:li:activity:(\d+)/g) || []) {
+        const num = id.split(':').pop(); if (!seenUrn.has(num)) { seenUrn.add(num); netUrns.push(num); }
+      }
+    } catch { /* ignore */ }
+  });
   try {
     const url = `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&sortBy=%22date_posted%22&datePosted=%22${datePosted}%22`;
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
@@ -133,10 +153,18 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
         const actor = [...p.querySelectorAll('a[href*="/in/"], a[href*="/company/"]')].find(a => a.innerText.trim());
         const txt = p.innerText.replace(/[ \t]+/g, ' ');
         const links = [...p.querySelectorAll('a[href]')].map(a => a.href);
-        const urn = (p.innerHTML.match(/urn:li:(?:activity|ugcPost|share):\d+/) || [])[0] || '';
+        // Best-effort DOM activity id. SDUI search usually strips this (→ ''); when present it
+        // comes from a /feed/update/ timestamp link, a data-urn/data-id attr, or inline HTML.
+        const permaLink = [...p.querySelectorAll('a[href*="/feed/update/urn:li:activity:"], a[href*="/posts/"]')].map(a => a.href).find(Boolean) || '';
+        const attrUrn = [p, ...p.querySelectorAll('[data-urn],[data-id]')].map(n => n.getAttribute?.('data-urn') || n.getAttribute?.('data-id') || '').find(v => /urn:li:activity:\d+/.test(v)) || '';
+        const urn = (permaLink.match(/urn:li:activity:(\d+)/) || attrUrn.match(/urn:li:activity:(\d+)/) || p.innerHTML.match(/urn:li:activity:(\d+)/) || [])[1] || '';
         return { actorUrl: actor ? actor.href.split('?')[0] : '', actorName: actor ? actor.innerText.split('•')[0].split('\n')[0].trim() : '', txt: txt.slice(0, 4000), links, urn, key: p.getAttribute('componentkey') };
       });
     });
+    // The hydrated DOM rarely carries the post's activity id, so backfill each post positionally
+    // from the activity URNs captured off the raw search response (same render order as the cards).
+    raw.forEach((r, i) => { if (!r.urn && netUrns[i]) r.urn = netUrns[i]; });
+    console.error(`[scrape] liPosts: ${netUrns.length} activity URNs captured from network, ${raw.filter(r => r.urn).length}/${raw.length} posts have a permalink`);
     console.error(`[scrape] liPosts: ${raw.length} post containers found on page`);
     if (!raw.length) console.error('[scrape] liPosts: 0 posts — LinkedIn markup may have changed, the session is cold, or no results for this query/date window');
     const leads = [];
@@ -158,12 +186,16 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const role = guessRole(bodyTxt);
       const s = score(bodyTxt, role);
       if (s.skip) skipped++;
-      const postUrl = r.urn ? `https://www.linkedin.com/feed/update/${r.urn}/` : '';
+      // postUrl = the FEED POST's own permalink (canonical /feed/update/urn:li:activity:<id>/).
+      // Distinct from posterUrl (the author profile). comment_interested needs this URL to find
+      // the comment box; a profile URL would fail with 'no_comment_box'.
+      const postUrl = r.urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.urn}/` : '';
+      console.error(`[scrape] liPosts: post "${(role || query).slice(0, 40)}" — permalink ${postUrl ? `found (urn:li:activity:${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });

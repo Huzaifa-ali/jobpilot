@@ -161,6 +161,21 @@ export async function scrapeLinkedInPosts(query, { max = 25, timeoutMs = 35000 }
   const leads = [];
   const emails = new Set();
 
+  // SDUI content-search strips the post's activity URN from the hydrated DOM, so capture the
+  // distinct activity URNs (render order) from the raw search response for the permalink/comment path.
+  const netUrns = [];
+  const seenUrn = new Set();
+  page.on('response', async resp => {
+    try {
+      if (!/\/search\/results\/content/.test(resp.url())) return;
+      const b = await resp.text().catch(() => '');
+      if (!b || !/urn:li:activity:\d+/.test(b)) return;
+      const re = /urn:li:fsd_update:\(urn:li:activity:(\d+),/g; let m, any = false;
+      while ((m = re.exec(b))) { any = true; if (!seenUrn.has(m[1])) { seenUrn.add(m[1]); netUrns.push(m[1]); } }
+      if (!any) for (const id of b.match(/urn:li:activity:(\d+)/g) || []) { const n = id.split(':').pop(); if (!seenUrn.has(n)) { seenUrn.add(n); netUrns.push(n); } }
+    } catch { /* ignore */ }
+  });
+
   try {
     await page.goto(
       `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&sortBy=%22date_posted%22`,
@@ -226,13 +241,18 @@ export async function scrapeLinkedInPosts(query, { max = 25, timeoutMs = 35000 }
         if (!availableChannels.length) continue;
         const suggestedMethod = availableChannels[0];
 
+        // The FEED POST's own permalink (for comment_interested), from the network-captured
+        // activity URNs matched by render order. Distinct from posterUrl (the author profile).
+        const urn = netUrns[leads.length] || '';
+        const postUrl = urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${urn}/` : '';
+
         leads.push({
           source: 'linkedin_post', company, role,
           availableChannels,
           suggestedMethod,
           apply_method: suggestedMethod,
-          url: found[0] ? `email:${found[0]}` : (formUrl || jobUrl || posterUrl),
-          email: found[0] || '', formUrl, jobUrl, posterUrl, posterName, asksDM,
+          url: found[0] ? `email:${found[0]}` : (formUrl || jobUrl || postUrl || posterUrl),
+          email: found[0] || '', formUrl, jobUrl, postUrl, posterUrl, posterName, asksDM,
           postText: text.slice(0, 600),
           portal: formUrl ? detectPortal(formUrl) : (jobUrl ? 'linkedin' : found[0] ? 'email' : 'linkedin'),
           remote: true, location: '', salary: '',
