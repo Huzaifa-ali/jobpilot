@@ -42,7 +42,15 @@ async function pruneStaleTargets() {
     const closable = pages.filter(p => /^(about:blank|chrome:\/\/newtab|chrome:\/\/new-tab-page)/i.test(p.url || '') || !(p.url || '').trim());
     // If there are a lot of pages, also close the oldest extras (keep the 3 most recent real ones).
     const realExtra = pages.filter(p => !closable.includes(p)).slice(3);
-    for (const p of [...closable, ...realExtra]) {
+    let toClose = [...closable, ...realExtra];
+    // CRITICAL: never close the LAST page. Chrome EXITS when its final page is closed. The debug
+    // Chrome is typically launched with a single about:blank, so prune would close it, Chrome
+    // would quit, and the subsequent connectOverCDP would hit a dead browser (ECONNREFUSED) and
+    // relaunch — a self-sustaining flap where the attach itself kills Chrome. Always leave ≥1.
+    if (toClose.length >= pages.length && pages.length > 0) {
+      toClose = toClose.filter(p => p.id !== pages[0].id);
+    }
+    for (const p of toClose) {
       if (!p.id) continue;
       const c = new AbortController(); const ct = setTimeout(() => c.abort(), 2500);
       await fetch(`${CDP}/json/close/${p.id}`, { signal: c.signal }).catch(() => {});
