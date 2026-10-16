@@ -7,9 +7,9 @@
 Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
 the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
 
-**Stable release: [v3.0.0](https://github.com/maazbin/jobpilot/releases/tag/v3.0.0).** Main is now **3.2.0**. Indeed Apply now works in the normal signed-in window.
+**Stable release: [v3.2.0](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0).** Indeed Apply now works in the normal signed-in window.
 
-[![Stable](https://img.shields.io/badge/release-v3.0.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.0.0)
+[![Stable](https://img.shields.io/badge/release-v3.2.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0)
 [![MIT License](https://img.shields.io/badge/license-MIT-14532d.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-2563eb.svg)](https://modelcontextprotocol.io)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-166534.svg)](https://nodejs.org)
