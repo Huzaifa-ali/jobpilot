@@ -15,7 +15,32 @@ const SLEEP = ms => new Promise(r => setTimeout(r, ms));
 // Matches all known LinkedIn 2026 Send-button labels. Used by findSendButton,
 // the custom-invite block, and the classic dialog block so they all match the
 // same label set. Never matches the ad-feedback "Submit" text.
+// 2026 variants observed: "Send", "Send invitation", "Send now",
+// "Send without a note", and the plain "Send invitation" footer button.
 const SEND_RE = /send without a note|send invitation|send now|^send$/i;
+
+// ── Ad / feedback decoy detection ─────────────────────────────────────────────
+// The saved encounter #20 snapshot (data/evolution/connect-d538c52cd0.html) proved
+// the real trap: the page had NO invite dialog at all, but it DID contain LinkedIn
+// ad-feedback dialogs ("Ad Options" / "Don't want to see this") whose footer carries
+// a disabled type="submit" button labelled "Submit". Those decoys sit outside <aside>
+// so the aside-only guard never catches them. We detect and skip them explicitly.
+const AD_DIALOG_RE = /ad options|don.?t want to see this|tell us why you don.?t want to see this|report this ad/i;
+
+// true when `el` lives inside an ad/feedback dialog (so it must never be clicked as Send)
+async function inAdDialog(el) {
+  return el.evaluate((e, re) => {
+    const dlg = e.closest('dialog, [role="dialog"]');
+    if (!dlg) return false;
+    return new RegExp(re, 'i').test(dlg.textContent || '');
+  }, AD_DIALOG_RE.source).catch(() => false);
+}
+
+// [connect] diagnostic logger — records which selectors were tried on failure so a
+// future encounter #20 captures the exact DOM state in the logs, not just a screenshot.
+function logConn(...args) {
+  if (process.env.DEBUG_CONN || process.env.CONN_DIAG) console.log('[connect]', ...args);
+}
 
 export function connectNote({ posterName, role, company }) {
   const p = getProfile();
@@ -63,20 +88,24 @@ async function mainCol(page, re) {
 //
 // When requireEnabled is true (default), candidates must also pass isEnabled().
 async function findSendButton(scope, { requireEnabled = true } = {}) {
+  // Shared per-candidate guard: visible, not in <aside>, not inside an ad dialog,
+  // and (optionally) enabled. Returns true when the candidate is a safe click target.
+  const usable = async (el) => {
+    const vis = await el.isVisible().catch(() => false);
+    if (!vis) return false;
+    const inAside = await el.evaluate(e => !!e.closest('aside')).catch(() => true);
+    if (inAside) return false;
+    if (await inAdDialog(el)) return false; // skip "Ad Options" / "Don't want to see this" Submit
+    if (requireEnabled && !(await el.isEnabled().catch(() => false))) return false;
+    return true;
+  };
+
   // Strategy 1: role=button by accessible name (aria-label + visible text)
   const byRole = scope.getByRole('button', { name: SEND_RE });
   const byRoleCount = await byRole.count().catch(() => 0);
   for (let i = 0; i < byRoleCount; i++) {
     const el = byRole.nth(i);
-    const inAside = await el.evaluate(e => !!e.closest('aside')).catch(() => true);
-    if (inAside) continue;
-    const vis = await el.isVisible().catch(() => false);
-    if (!vis) continue;
-    if (requireEnabled) {
-      const en = await el.isEnabled().catch(() => false);
-      if (!en) continue;
-    }
-    return el;
+    if (await usable(el)) { logConn('matched send via role=button name=SEND_RE'); return el; }
   }
 
   // Strategy 2: aria-label containing "send" on buttons/links not in aside
@@ -84,16 +113,7 @@ async function findSendButton(scope, { requireEnabled = true } = {}) {
   const byAriaCount = await byAria.count().catch(() => 0);
   for (let i = 0; i < byAriaCount; i++) {
     const el = byAria.nth(i);
-    const vis = await el.isVisible().catch(() => false);
-    if (!vis) continue;
-    // Double-check not in aside (CSS :not may not cover all nesting)
-    const inAside = await el.evaluate(e => !!e.closest('aside')).catch(() => true);
-    if (inAside) continue;
-    if (requireEnabled) {
-      const en = await el.isEnabled().catch(() => false);
-      if (!en) continue;
-    }
-    return el;
+    if (await usable(el)) { logConn('matched send via aria-label*=send'); return el; }
   }
 
   // Strategy 3: button / role=button filtered by visible text matching SEND_RE
@@ -103,37 +123,47 @@ async function findSendButton(scope, { requireEnabled = true } = {}) {
     const el = allBtns.nth(i);
     const vis = await el.isVisible().catch(() => false);
     if (!vis) continue;
-    const inAside = await el.evaluate(e => !!e.closest('aside')).catch(() => true);
-    if (inAside) continue;
     const txt = await el.innerText().catch(() => '');
     if (!SEND_RE.test(txt.trim())) continue;
-    if (requireEnabled) {
-      const en = await el.isEnabled().catch(() => false);
-      if (!en) continue;
-    }
-    return el;
+    if (await usable(el)) { logConn(`matched send via visible-text "${txt.trim().slice(0, 30)}"`); return el; }
   }
 
-  // Strategy 4: type=submit ONLY when scope has a textarea (the note form)
+  // Strategy 4: type=submit ONLY when scope has a textarea (the note form).
+  // Guarded by both the textarea check AND inAdDialog(): the saved encounter #20
+  // snapshot had NO textarea but DID carry disabled "Submit" buttons from ad-feedback
+  // dialogs — this strategy must never return one of those.
   const hasTa = await scope.locator('textarea').count().catch(() => 0);
   if (hasTa > 0) {
     const submitBtns = scope.locator('button[type="submit"], input[type="submit"]');
     const submitCount = await submitBtns.count().catch(() => 0);
     for (let i = 0; i < submitCount; i++) {
       const el = submitBtns.nth(i);
-      const inAside = await el.evaluate(e => !!e.closest('aside')).catch(() => true);
-      if (inAside) continue;
-      const vis = await el.isVisible().catch(() => false);
-      if (!vis) continue;
-      if (requireEnabled) {
-        const en = await el.isEnabled().catch(() => false);
-        if (!en) continue;
-      }
-      return el;
+      if (await usable(el)) { logConn('matched send via type=submit (note-form scope)'); return el; }
     }
   }
 
+  logConn(`no send button in scope (roleHits=${byRoleCount}, ariaHits=${byAriaCount}, allBtns=${allBtnsCount}, hasTextarea=${hasTa}, requireEnabled=${requireEnabled})`);
   return null;
+}
+
+// Diagnostic snapshot of the page's dialogs + candidate buttons — logged when a send
+// button cannot be found, so a future encounter #20 records WHY (e.g. "only ad dialogs
+// present, no invite dialog") instead of just a screenshot.
+async function logSendFailureDiag(page) {
+  const diag = await page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll('dialog, [role="dialog"]')].map(d => ({
+      title: (d.querySelector('h1,h2,[id*="header" i]')?.textContent || '').trim().slice(0, 60),
+      hasTextarea: !!d.querySelector('textarea'),
+      open: d.hasAttribute('open'),
+    }));
+    const buttons = [...document.querySelectorAll('button, [role="button"], input[type="submit"]')]
+      .filter(b => b.offsetParent !== null && !b.closest('aside'))
+      .map(b => (b.getAttribute('aria-label') || b.textContent || b.value || '').trim().slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 25);
+    return { dialogs, buttons };
+  }).catch(() => null);
+  logConn('send-failure diagnostics:', JSON.stringify(diag));
 }
 
 // ── JS-evaluate Send-button finder (last resort, bypasses Playwright locators) ─
@@ -143,9 +173,14 @@ async function jsFindAndClickSend(page) {
   return page.evaluate(() => {
     const btns = [...document.querySelectorAll('button, input[type="submit"], [role="button"]')];
     const sendRe = /^send$|send invitation|send without a note|send now/i;
+    // Ad/feedback dialogs ("Ad Options" / "Don't want to see this") carry a "Submit"
+    // button that is NOT a Send control — exclude them (encounter #20 trap).
+    const adRe = /ad options|don.?t want to see this|report this ad/i;
     const target = btns.find(b => {
       if (b.offsetParent === null) return false;
       if (b.closest('aside')) return false;
+      const dlg = b.closest('dialog, [role="dialog"]');
+      if (dlg && adRe.test(dlg.textContent || '')) return false;
       const txt = (b.textContent || b.value || b.getAttribute('aria-label') || '').trim();
       // Only match type=submit when inside a form/dialog with a textarea (invite note form)
       if (b.type === 'submit' && !sendRe.test(txt)) {
@@ -338,6 +373,7 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
             return { ok: true, result: usedNote ? 'connected' : 'connected_no_note', detail: 'invite sent via custom-invite JS fallback', note: usedNote ? note : '' };
           }
         }
+        await logSendFailureDiag(page);
         await encounter('connect', 'send button not found in invite dialog', { url: profileUrl, page });
         await page.close();
         return { ok: false, result: 'error', detail: 'send button not found on custom-invite page' };
@@ -405,9 +441,23 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
         { timeout: 5000 }
       ).catch(() => {});
     });
-    // Build dialog scope — prefer narrowed scope but fall back to whole page
-    const dlgCount = await inviteDlg.count().catch(() => 0);
-    const dlgScope = dlgCount ? inviteDlg : page;
+    // Build dialog scope — prefer the real invite dialog, never an ad-feedback dialog.
+    // The 2026 snapshot (encounter #20) showed up to 4 "Ad Options"/"Don't want to see this"
+    // native <dialog> elements on the profile page; scoping Send detection to one of those
+    // is exactly how the stray "Submit" buttons got picked up. Pick the first dialog whose
+    // text is NOT ad-feedback copy; fall back to the whole page.
+    let dlgScope = page;
+    const allDlgs = page.locator('div[role="dialog"], dialog, [data-test-modal], [data-artdeco-is-focused-dialog]');
+    const allDlgCount = await allDlgs.count().catch(() => 0);
+    for (let i = 0; i < allDlgCount; i++) {
+      const d = allDlgs.nth(i);
+      if (!(await d.isVisible().catch(() => false))) continue;
+      const dTxt = await d.innerText().catch(() => '');
+      if (AD_DIALOG_RE.test(dTxt)) { logConn('skipping ad-feedback dialog as scope'); continue; }
+      dlgScope = d;
+      break;
+    }
+    logConn(`invite dialog scope resolved (dialogs=${allDlgCount}, scoped=${dlgScope !== page})`);
 
     // ── Unified Send-button search with retry ─────────────────────────────────────
     // Uses findSendButton with the dialog as primary scope and page as fallback.
@@ -456,6 +506,7 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
         return { ok: true, result: 'connected_no_note', detail: 'invite sent via late page-level send button' };
       }
 
+      await logSendFailureDiag(page);
       await encounter('connect', 'send button not found in invite dialog', { url: profileUrl, page });
       await page.close(); return { ok: false, result: 'error', detail: 'send button not found in invite dialog' };
     }

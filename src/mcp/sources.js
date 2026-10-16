@@ -103,14 +103,46 @@ function guessCompany(text) {
 
 // ── LinkedIn hiring posts ─────────────────────────────────────────────────────
 export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } = {}) {
-  const ctx = await getContext();
-  const page = await ctx.newPage();
+  console.error('[scrape] liPosts: starting, query=' + query);
+  let ctx;
+  try { ctx = await getContext(); } catch (e) {
+    console.error('[scrape] liPosts: getContext() failed:', e.message);
+    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
+  }
+  let page;
+  try { page = await ctx.newPage(); } catch (e) {
+    console.error('[scrape] liPosts: newPage() failed:', e.message);
+    return { ok: false, leads: [], detail: `new page error: ${e.message}` };
+  }
   page.setDefaultTimeout(30000);
+  // LinkedIn's SDUI content-search strips the post's activity URN from the hydrated DOM, so the
+  // only reliable source for each post's permalink is the raw search response. Collect the
+  // distinct activity URNs in first-appearance order from every /search/results/content payload;
+  // the posts render in that same order, so post[i] → netUrns[i] gives the real permalink.
+  const netUrns = [];
+  const seenUrn = new Set();
+  page.on('response', async resp => {
+    try {
+      if (!/\/search\/results\/content/.test(resp.url())) return;
+      const body = await resp.text().catch(() => '');
+      if (!body || !/urn:li:activity:\d+/.test(body)) return;
+      // Prefer fsd_update wrappers (one per rendered update); fall back to bare activity URNs.
+      const re = /urn:li:fsd_update:\(urn:li:activity:(\d+),/g;
+      let m, any = false;
+      while ((m = re.exec(body))) { any = true; if (!seenUrn.has(m[1])) { seenUrn.add(m[1]); netUrns.push(m[1]); } }
+      if (!any) for (const id of body.match(/urn:li:activity:(\d+)/g) || []) {
+        const num = id.split(':').pop(); if (!seenUrn.has(num)) { seenUrn.add(num); netUrns.push(num); }
+      }
+    } catch { /* ignore */ }
+  });
   try {
     const url = `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&sortBy=%22date_posted%22&datePosted=%22${datePosted}%22`;
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
     await SLEEP(4000);
-    if (/login|authwall/.test(page.url())) return { ok: false, leads: [], detail: 'LinkedIn not logged in' };
+    if (/login|authwall|\/signup/.test(page.url())) {
+      console.error('[scrape] liPosts: hit login/authwall — session not logged in (landed on ' + page.url().slice(0, 80) + ')');
+      return { ok: false, leads: [], detail: 'LinkedIn not logged in (authwall) — log into LinkedIn in the debug Chrome window' };
+    }
     for (let i = 0; i < maxScroll; i++) { await page.mouse.wheel(0, 2500); await SLEEP(900); }
     // expand truncated posts so hidden emails become visible
     await page.evaluate(() => [...document.querySelectorAll('button, span[role=button]')].filter(b => /^…?\s*more$|see more/i.test(b.innerText.trim())).forEach(b => b.click())).catch(() => {});
@@ -121,11 +153,22 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
         const actor = [...p.querySelectorAll('a[href*="/in/"], a[href*="/company/"]')].find(a => a.innerText.trim());
         const txt = p.innerText.replace(/[ \t]+/g, ' ');
         const links = [...p.querySelectorAll('a[href]')].map(a => a.href);
-        const urn = (p.innerHTML.match(/urn:li:(?:activity|ugcPost|share):\d+/) || [])[0] || '';
+        // Best-effort DOM activity id. SDUI search usually strips this (→ ''); when present it
+        // comes from a /feed/update/ timestamp link, a data-urn/data-id attr, or inline HTML.
+        const permaLink = [...p.querySelectorAll('a[href*="/feed/update/urn:li:activity:"], a[href*="/posts/"]')].map(a => a.href).find(Boolean) || '';
+        const attrUrn = [p, ...p.querySelectorAll('[data-urn],[data-id]')].map(n => n.getAttribute?.('data-urn') || n.getAttribute?.('data-id') || '').find(v => /urn:li:activity:\d+/.test(v)) || '';
+        const urn = (permaLink.match(/urn:li:activity:(\d+)/) || attrUrn.match(/urn:li:activity:(\d+)/) || p.innerHTML.match(/urn:li:activity:(\d+)/) || [])[1] || '';
         return { actorUrl: actor ? actor.href.split('?')[0] : '', actorName: actor ? actor.innerText.split('•')[0].split('\n')[0].trim() : '', txt: txt.slice(0, 4000), links, urn, key: p.getAttribute('componentkey') };
       });
     });
+    // The hydrated DOM rarely carries the post's activity id, so backfill each post positionally
+    // from the activity URNs captured off the raw search response (same render order as the cards).
+    raw.forEach((r, i) => { if (!r.urn && netUrns[i]) r.urn = netUrns[i]; });
+    console.error(`[scrape] liPosts: ${netUrns.length} activity URNs captured from network, ${raw.filter(r => r.urn).length}/${raw.length} posts have a permalink`);
+    console.error(`[scrape] liPosts: ${raw.length} post containers found on page`);
+    if (!raw.length) console.error('[scrape] liPosts: 0 posts — LinkedIn markup may have changed, the session is cold, or no results for this query/date window');
     const leads = [];
+    let notHiring = 0, skipped = 0; // drop diagnostics
     for (const r of raw) {
       const text = r.txt;
       const time = (text.match(/\n\s*(\d+\s*(?:m|h|d|w|mo|yr))\s*[•·\n]/) || text.match(/\b(\d+\s*(?:m|h|d|w|mo))\s*•/) || [])[1] || '';
@@ -136,24 +179,33 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const jobUrl = (ext.find(h => /linkedin\.com\/jobs\/view\/\d+/.test(h)) || '').split('?')[0];
       const formUrl = ext.find(h => FORM_RE.test(h) && !/linkedin\.com/.test(h)) || ext.find(h => /lnkd\.in\//.test(h)) || '';
       const hiring = /hiring|looking for|we.?re seeking|open (role|position)|join (our|the) team|send (your )?(cv|resume)|apply|vacanc|opening/i.test(text);
-      if (!hiring) continue;
+      if (!hiring) { notHiring++; continue; }
       // body = post content after the author header ("… 3h • Follow/Connect")
       const cut = text.search(/\n\s*(Follow|Connect|Subscribe)\s*\n/);
       const bodyTxt = cut > 0 ? text.slice(cut).replace(/^\s*(Follow|Connect|Subscribe)\s*/, '') : text;
       const role = guessRole(bodyTxt);
       const s = score(bodyTxt, role);
-      const postUrl = r.urn ? `https://www.linkedin.com/feed/update/${r.urn}/` : '';
+      if (s.skip) skipped++;
+      // postUrl = the FEED POST's own permalink (canonical /feed/update/urn:li:activity:<id>/).
+      // Distinct from posterUrl (the author profile). comment_interested needs this URL to find
+      // the comment box; a profile URL would fail with 'no_comment_box'.
+      const postUrl = r.urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.urn}/` : '';
+      console.error(`[scrape] liPosts: post "${(role || query).slice(0, 40)}" — permalink ${postUrl ? `found (urn:li:activity:${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });
     }
-    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${leads.filter(l => l.email).length} with email)` };
+    const withEmail = leads.filter(l => l.email).length;
+    const actionable = leads.filter(l => !l.skip).length;
+    console.error(`[scrape] liPosts: ${raw.length} posts → ${leads.length} hiring leads (${notHiring} non-hiring dropped, ${skipped} flagged skip, ${actionable} actionable, ${withEmail} with email)`);
+    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${withEmail} with email, ${skipped} flagged skip)` };
   } catch (e) {
+    console.error('[scrape] liPosts: error:', e.message);
     return { ok: false, leads: [], detail: e.message.slice(0, 200) };
   } finally { await page.close().catch(() => {}); }
 }
@@ -161,8 +213,17 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
 // ── LinkedIn job listings (freshest) ─────────────────────────────────────────
 // geo 92000000 = Worldwide. tpr seconds: 86400 = 24h.
 export async function liJobs(query, { easyOnly = true, tpr = 86400, geoId = '92000000', pages = 2 } = {}) {
-  const ctx = await getContext();
-  const page = await ctx.newPage();
+  console.error('[scrape] liJobs: starting, query=' + query);
+  let ctx;
+  try { ctx = await getContext(); } catch (e) {
+    console.error('[scrape] liJobs: getContext() failed:', e.message);
+    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
+  }
+  let page;
+  try { page = await ctx.newPage(); } catch (e) {
+    console.error('[scrape] liJobs: newPage() failed:', e.message);
+    return { ok: false, leads: [], detail: `new page error: ${e.message}` };
+  }
   page.setDefaultTimeout(30000);
   const out = [];
   try {
@@ -195,27 +256,55 @@ export async function liJobs(query, { easyOnly = true, tpr = 86400, geoId = '920
     }
     const seen = new Set();
     const uniq = out.filter(j => !seen.has(j.url) && seen.add(j.url));
+    console.error(`[scrape] liJobs: ${uniq.length} unique listings`);
     return { ok: true, leads: uniq, detail: `${uniq.length} listings` };
   } catch (e) {
+    console.error('[scrape] liJobs: error:', e.message);
     return { ok: false, leads: out, detail: e.message.slice(0, 200) };
   } finally { await page.close().catch(() => {}); }
 }
 
 // ── Hacker News "Who is hiring?" (newest comments first, emails extracted) ───
 export async function hnHiring({ maxAgeHours = 24 * 10 } = {}) {
-  const s = await (await fetch('https://hn.algolia.com/api/v1/search_by_date?query=%22who%20is%20hiring%22&tags=story,author_whoishiring&hitsPerPage=3', { headers: { 'User-Agent': UA } })).json();
+  console.error('[scrape] hnHiring: fetching latest thread list');
+  let s;
+  try {
+    const resp = await fetch('https://hn.algolia.com/api/v1/search_by_date?query=%22who%20is%20hiring%22&tags=story,author_whoishiring&hitsPerPage=3', { headers: { 'User-Agent': UA } });
+    s = await resp.json();
+  } catch (e) {
+    console.error('[scrape] hnHiring: thread fetch failed:', e.message);
+    return { ok: false, leads: [], detail: `thread fetch error: ${e.message}` };
+  }
   const story = (s.hits || []).find(h => /who is hiring/i.test(h.title));
   if (!story) return { ok: false, leads: [], detail: 'no thread' };
+  console.error(`[scrape] hnHiring: found "${story.title}" (id ${story.objectID})`);
   const since = Math.floor(Date.now() / 1000) - maxAgeHours * 3600;
   const leads = [];
+  let totalComments = 0, topLevel = 0, passedGeo = 0;
   for (let page = 0; page < 5; page++) {
-    const r = await (await fetch(`https://hn.algolia.com/api/v1/search_by_date?tags=comment,story_${story.objectID}&numericFilters=created_at_i>${since}&hitsPerPage=200&page=${page}`, { headers: { 'User-Agent': UA } })).json();
-    for (const c of r.hits || []) {
+    // BUG FIX: URL-encode the '>' in numericFilters — unencoded '>' broke Algolia filter parsing
+    const apiUrl = `https://hn.algolia.com/api/v1/search_by_date?tags=comment,story_${story.objectID}&numericFilters=created_at_i%3E${since}&hitsPerPage=200&page=${page}`;
+    let r;
+    try {
+      r = await (await fetch(apiUrl, { headers: { 'User-Agent': UA } })).json();
+    } catch (e) {
+      console.error(`[scrape] hnHiring: page ${page} fetch failed:`, e.message);
+      break;
+    }
+    const hits = r.hits || [];
+    totalComments += hits.length;
+    for (const c of hits) {
       if (c.parent_id != +story.objectID) continue; // top-level only = one company per comment
+      topLevel++;
       const html = c.comment_text || '';
       const text = html.replace(/<p>/g, '\n').replace(/<[^>]+>/g, ' ').replace(/&#x2F;/g, '/').replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
-      if (!/remote/i.test(text)) continue;
-      if (/remote\s*\(?\s*(us|usa|u\.s\.|united states|us[- ]only|north america|eu only|uk only|canada)\b[^\n]{0,20}(only)?/i.test(text) && !/worldwide|anywhere|global/i.test(text)) continue;
+      // BUG FIX: removed hard "remote" requirement — many good HN posts don't say "remote"
+      // but still accept worldwide applicants. Keep all top-level comments; only skip
+      // geo-locked ones that explicitly restrict to US/EU/etc without worldwide/anywhere.
+      const geoLocked = /\b(on[- ]?site|in[- ]?office)\s*only\b/i.test(text) && !/remote|worldwide|anywhere|global/i.test(text);
+      const usOnly = /remote\s*\(?\s*(us|usa|u\.s\.|united states|us[- ]only|north america|eu only|uk only|canada)\b[^\n]{0,20}(only)?/i.test(text) && !/worldwide|anywhere|global/i.test(text);
+      if (geoLocked || usOnly) continue;
+      passedGeo++;
       const emails = emailsIn(text);
       const links = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1].replace(/&#x2F;/g, '/').replace(/&amp;/g, '&'));
       const form = links.find(l => FORM_RE.test(l)) || '';
@@ -225,26 +314,38 @@ export async function hnHiring({ maxAgeHours = 24 * 10 } = {}) {
         source: 'hn_hiring', company: head.split('|')[0].trim().slice(0, 60), role: (head.split('|').find(x => /engineer|developer|scientist/i.test(x)) || guessRole(text) || 'Software Engineer').trim().slice(0, 90),
         url: `https://news.ycombinator.com/item?id=${c.objectID}`, email: emails[0] || '', emails, applyUrl: form, description: text.slice(0, 2000),
         postedAt: new Date(c.created_at_i * 1000).toISOString(), channel: emails[0] ? 'email' : form ? 'form' : 'none', portal: emails[0] ? 'email' : detectPortal(form),
-        relevance: sc.rel, skip: sc.skip, skipWhy: sc.why, remote: true,
+        relevance: sc.rel, skip: sc.skip, skipWhy: sc.why, remote: /remote/i.test(text),
       });
     }
     if ((r.nbPages || 0) <= page + 1) break;
   }
-  return { ok: true, leads, detail: `HN "${story.title}": ${leads.length} remote (${leads.filter(l => l.email).length} email)` };
+  console.error(`[scrape] hnHiring: ${totalComments} comments fetched, ${topLevel} top-level, ${passedGeo} passed geo filter, ${leads.length} leads (${leads.filter(l => l.email).length} email, ${leads.filter(l => l.applyUrl).length} form)`);
+  return { ok: true, leads, detail: `HN "${story.title}": ${leads.length} leads (${leads.filter(l => l.email).length} email)` };
 }
 
 // ── Reddit hiring posts (public JSON, newest first) ──────────────────────────
 export async function redditHiring({ subs = ['forhire', 'remotejs', 'jobbit', 'PythonJobs', 'MachineLearningJobs', 'hiring', 'RemoteJobs'], maxAgeHours = 72 } = {}) {
+  console.error('[scrape] redditHiring: starting');
   const leads = []; const since = Date.now() / 1000 - maxAgeHours * 3600;
   // Reddit 403s non-browser clients → fetch the JSON from inside the user's Chrome.
-  const ctx = await getContext();
-  const page = await ctx.newPage();
+  let ctx;
+  try { ctx = await getContext(); } catch (e) {
+    console.error('[scrape] redditHiring: getContext() failed:', e.message);
+    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
+  }
+  let page;
+  try { page = await ctx.newPage(); } catch (e) {
+    console.error('[scrape] redditHiring: newPage() failed:', e.message);
+    return { ok: false, leads: [], detail: `new page error: ${e.message}` };
+  }
+  try {
   await page.goto('https://www.reddit.com/r/forhire/new/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
   await SLEEP(6000); // reddit does a client-side redirect/bot check before same-origin fetch works
   for (const sub of subs) {
     try {
       const j = await page.evaluate(async s => { const r = await fetch(`/r/${s}/new.json?limit=50&raw_json=1`); return r.ok ? r.json() : null; }, sub).catch(() => null);
-      if (!j) continue;
+      if (!j) { console.error(`[scrape] redditHiring: r/${sub} returned null`); continue; }
+      let subCount = 0;
       for (const { data: d } of j.data?.children || []) {
         if (d.created_utc < since) continue;
         const title = d.title || '';
@@ -260,25 +361,33 @@ export async function redditHiring({ subs = ['forhire', 'remotejs', 'jobbit', 'P
           postedAt: new Date(d.created_utc * 1000).toISOString(), channel: emails[0] ? 'email' : form ? 'form' : 'none', portal: emails[0] ? 'email' : detectPortal(form),
           relevance: sc.rel, skip: sc.skip, skipWhy: sc.why, remote: true,
         });
+        subCount++;
       }
-    } catch {}
+      console.error(`[scrape] redditHiring: r/${sub} → ${subCount} leads`);
+    } catch (e) { console.error(`[scrape] redditHiring: r/${sub} error:`, e.message); }
     await SLEEP(1200);
   }
-  await page.close().catch(() => {});
+  } finally {
+    await page.close().catch(() => {});
+  }
+  console.error(`[scrape] redditHiring: total ${leads.length} leads (${leads.filter(l => l.email).length} email)`);
   return { ok: true, leads, detail: `${leads.length} reddit leads (${leads.filter(l => l.email).length} email)` };
 }
 
 // ── Public remote boards (fresh, filtered) ───────────────────────────────────
 export async function publicBoards({ maxAgeHours = 72 } = {}) {
+  console.error('[scrape] publicBoards: starting');
   const since = Date.now() - maxAgeHours * 3600e3;
   const leads = [];
+  const counts = {}; // per-board counts for diagnostics
   const push = (src, title, company, url, desc, dateMs, applyUrl = '') => {
     if (!title || !url || (dateMs && dateMs < since)) return;
     const text = `${title} ${company} ${desc}`; const sc = score(text, title); const emails = emailsIn(desc, { needContext: true });
     leads.push({ source: src, role: title, company, url, email: emails[0] || '', emails, applyUrl: applyUrl || url, description: desc.slice(0, 2000),
       postedAt: dateMs ? new Date(dateMs).toISOString() : '', channel: emails[0] ? 'email' : 'form', portal: emails[0] ? 'email' : detectPortal(applyUrl || url), relevance: sc.rel, skip: sc.skip, skipWhy: sc.why, remote: true });
+    counts[src] = (counts[src] || 0) + 1;
   };
-  const get = async u => { try { const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: 20000 }); return r.ok ? r.json() : null; } catch { return null; } };
+  const get = async u => { try { const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: 20000 }); if (!r.ok) { console.error(`[scrape] publicBoards: GET ${u} → ${r.status}`); return null; } return r.json(); } catch (e) { console.error(`[scrape] publicBoards: GET ${u} error: ${e.message}`); return null; } };
   const strip = h => (h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&amp;/g, ' ').replace(/\s+/g, ' ');
   for (const tag of ['devops', 'kubernetes', 'terraform', 'cloud', 'sre']) {
     const j = await get(`https://remoteok.com/api?tag=${tag}`);
@@ -290,60 +399,51 @@ export async function publicBoards({ maxAgeHours = 72 } = {}) {
   for (const x of jb?.jobs || []) push('jobicy', x.jobTitle, x.companyName, x.url, strip(x.jobDescription), Date.parse(x.pubDate));
   const hm = await get('https://himalayas.app/jobs/api?limit=100');
   for (const x of hm?.jobs || []) push('himalayas', x.title, x.companyName, x.applicationLink || x.guid, strip(x.description || x.excerpt), (x.pubDate || 0) * 1000);
-  const seen = new Set();
-  const uniq = leads.filter(l => !seen.has(l.url) && seen.add(l.url));
 
   // ── Pakistani job boards ──────────────────────────────────────────────────
   // Helper to fetch XML/text (not JSON)
-  const getText = async u => { try { const r = await fetch(u, { headers: { 'User-Agent': UA }, timeout: 20000 }); return r.ok ? r.text() : null; } catch { return null; } };
-  const parseRssItems = xml => (String(xml || '')).match(/<item>[\s\S]*?<\/item>/g) || [];
-  const rssField = (item, tag) => (item.match(new RegExp(`<${tag}><\\!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`)) || []).slice(1).find(Boolean) || '';
+  const getText = async u => { try { const r = await fetch(u, { headers: { 'User-Agent': UA }, timeout: 20000 }); if (!r.ok) { console.error(`[scrape] publicBoards: GET ${u} → ${r.status}`); return null; } return r.text(); } catch (e) { console.error(`[scrape] publicBoards: GET ${u} error: ${e.message}`); return null; } };
+  const parseRssItems = xml => (String(xml || '')).match(/<item>[\s\S]*?<\/item>/gi) || [];
+  // tag match is case-insensitive — Mustakbil uses lowercase <pubdate>, <company>, <city> …
+  const rssField = (item, tag) => (item.match(new RegExp(`<${tag}[^>]*><\\!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`, 'i')) || []).slice(1).find(v => v != null && v !== '') || '';
+  const PK_TECH = /\b(python|django|flask|fastapi|ai|a\.i\.|ml|machine learning|deep learning|data (scien|engineer|analyst)|llm|gen ?ai|nlp|backend|back[- ]end|full[- ]?stack|software (engineer|developer)|web developer|node|react|devops|cloud|sre|mern|mlops)\b/i;
 
-  // Rozee.pk RSS — largest Pakistani job board
-  for (const kw of ['AI Engineer', 'Machine Learning', 'Python Developer', 'Backend Developer', 'LLM', 'FastAPI']) {
-    try {
-      const xml = await getText(`https://www.rozee.pk/job/rss/q/${encodeURIComponent(kw)}`);
-      for (const item of parseRssItems(xml).slice(0, 15)) {
-        const title = rssField(item, 'title');
-        const link = rssField(item, 'link') || rssField(item, 'guid');
-        const desc = strip(rssField(item, 'description'));
-        const pubDate = rssField(item, 'pubDate');
-        const company = rssField(item, 'rozee:company') || rssField(item, 'author') || '';
-        if (title && link) push('rozee.pk', title, company, link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
-      }
-    } catch { /* skip */ }
-    await new Promise(r => setTimeout(r, 600));
-  }
-
-  // Mustakbil.com RSS — second-largest Pakistani board
-  for (const kw of ['AI Engineer', 'Python Developer', 'Backend Developer']) {
-    try {
-      const xml = await getText(`https://mustakbil.com/jobs/rss/?q=${encodeURIComponent(kw)}&l=Pakistan`);
-      for (const item of parseRssItems(xml).slice(0, 12)) {
-        const title = rssField(item, 'title');
-        const link = rssField(item, 'link') || rssField(item, 'guid');
-        const desc = strip(rssField(item, 'description'));
-        const pubDate = rssField(item, 'pubDate');
-        if (title && link) push('mustakbil', title, '', link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
-      }
-    } catch { /* skip */ }
-    await new Promise(r => setTimeout(r, 600));
-  }
-
-  // Jobs.com.pk / Paperpk RSS (Pakistani job aggregators)
+  // Mustakbil.com — Pakistan's #1 job board. Old /jobs/rss/?q= path is 410 (gone); the
+  // live feed is the aggregate RSS at rss.mustakbil.com (500 freshest PK jobs, all cats,
+  // with <company>/<city>/<country>). We filter to tech roles via PK_TECH. Apply pages
+  // (mustakbil.com/jobs/job/<id>) resolve through apply_portal; emails rarely appear in the
+  // description, so most leads carry a `form` channel.
   try {
-    const xml = await getText('https://www.paperpk.com/rss/category/technology-jobs/');
-    for (const item of parseRssItems(xml).slice(0, 20)) {
-      const title = rssField(item, 'title');
+    const xml = await getText('https://rss.mustakbil.com/jobs-rss?c=162');
+    const items = parseRssItems(xml);
+    console.error(`[scrape] publicBoards: mustakbil RSS → ${items.length} items`);
+    let kept = 0;
+    for (const item of items) {
+      const title = rssField(item, 'title').replace(/\s+jobs?\s+in\s+[^,]+,\s*pakistan\s*$/i, '').trim();
       const link = rssField(item, 'link') || rssField(item, 'guid');
       const desc = strip(rssField(item, 'description'));
-      const pubDate = rssField(item, 'pubDate');
-      if (title && link && /python|ai|ml|backend|machine learning|llm|fastapi|software engineer/i.test(title + ' ' + desc))
-        push('paperpk', title, '', link, desc, pubDate ? Date.parse(pubDate) : Date.now() - 24 * 3600e3, link);
+      const pubDate = rssField(item, 'pubdate') || rssField(item, 'pubDate');
+      const company = rssField(item, 'company').trim();
+      const city = rssField(item, 'city').trim();
+      const country = rssField(item, 'country').trim() || 'Pakistan';
+      // keep tech roles only — match the TITLE so sales/CSR posts (whose body happens to
+      // mention "software"/"AI") don't slip in; score() still re-filters off-stack titles.
+      if (!title || !link || !PK_TECH.test(title)) continue;
+      const loc = [city, country].filter(Boolean).join(', ');
+      // carry city/country into the description so the Pakistan filter + score() see the geo
+      push('mustakbil', title, company, link, `${desc} — ${loc}`.trim(), pubDate ? Date.parse(pubDate) : Date.now() - 12 * 3600e3, link);
+      kept++;
     }
-  } catch { /* skip */ }
+    console.error(`[scrape] publicBoards: mustakbil → ${kept} tech leads kept`);
+  } catch (e) { console.error(`[scrape] publicBoards: mustakbil error: ${e.message}`); }
 
-  const seen2 = new Set();
-  const all = [...uniq, ...leads.slice(uniq.length)].filter(l => !seen2.has(l.url) && seen2.add(l.url));
-  return { ok: true, leads: all, detail: `${all.length} fresh board jobs (${all.filter(l => l.email).length} email)` };
+  // NOTE: rozee.pk and paperpk.com no longer expose a plain-fetch public feed —
+  //   rozee /job/rss/q/ → 404 and its /job/jsearch/ results are rendered client-side (JS only),
+  //   paperpk category RSS → 404. Both dead endpoints were removed so logs aren't noisy.
+  //   LinkedIn hiring posts (liPosts, Pakistan queries) remain the primary PK email source.
+
+  const seen = new Set();
+  const all = leads.filter(l => !seen.has(l.url) && seen.add(l.url));
+  console.error('[scrape] publicBoards: per-board counts', JSON.stringify(counts), `→ ${all.length} unique (${all.filter(l => l.email).length} email)`);
+  return { ok: true, leads: all, detail: `${all.length} fresh board jobs (${all.filter(l => l.email).length} email) — ${Object.entries(counts).map(([k, v]) => `${k}:${v}`).join(' ')}` };
 }

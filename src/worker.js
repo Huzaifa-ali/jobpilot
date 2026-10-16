@@ -540,7 +540,10 @@ async function connector() {
     // Comment "Interested" on the hiring POST itself (extra touchpoint recruiters notice).
     // Only for real LinkedIn feed/post URLs, once per post, and never when LinkedIn is
     // throttling. Failure here never blocks the lead — it's a bonus engagement step.
-    const postUrl = j.url && /linkedin\.com\/(feed\/update|posts\/)/i.test(j.url) ? j.url : '';
+    // Prefer the stored post permalink (post_url); fall back to j.url only when it is itself
+    // a feed/post URL. Never use the poster PROFILE url — comment_interested needs the POST.
+    const postUrl = (j.post_url && /linkedin\.com\/(feed\/update|posts\/)/i.test(j.post_url) ? j.post_url : '')
+      || (j.url && /linkedin\.com\/(feed\/update|posts\/)/i.test(j.url) ? j.url : '');
     if (postUrl && !needsLogin('LinkedIn') && r.result !== 'limit') {
       try {
         beat('connector', `💬 commenting on post → ${j.company || j.poster_name}`);

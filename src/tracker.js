@@ -97,6 +97,7 @@ export async function initDB() {
     add('apply_url', "TEXT DEFAULT ''");    // external form / easy-apply job url
     add('poster_url', "TEXT DEFAULT ''");   // LinkedIn author profile (for connect)
     add('poster_name', "TEXT DEFAULT ''");
+    add('post_url', "TEXT DEFAULT ''");     // LinkedIn feed-post permalink (for comment_interested)
     add('posted_at', "TEXT DEFAULT ''");    // ISO, best-effort from "3h"/"1 day ago"
     add('relevance', 'REAL DEFAULT 0');     // 0..1 skill match
     add('description', "TEXT DEFAULT ''");
@@ -185,13 +186,13 @@ export function upsertJobs(list) {
     const email = j.email && !isBadEmail(j.email) ? j.email.toLowerCase() : '';
     db.run(
       `INSERT OR IGNORE INTO jobs (source,company,role,remote,location,salary,url,email,portal,status,
-         channel,apply_url,poster_url,poster_name,posted_at,relevance,description,updated_at,
+         channel,apply_url,poster_url,poster_name,post_url,posted_at,relevance,description,updated_at,
          cv_match_percent,cv_drift_percent,cv_missing_terms,tailor_status,
          selected_cv_id,selected_cv_path,selected_cv_reason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [j.source || '', j.company || '', j.role || '', j.remote ? 1 : 0, j.location || '', j.salary || '', j.url,
        email, j.portal || 'other', j.status || 'new', j.channel || '', j.applyUrl || j.apply_url || '',
-       j.posterUrl || j.poster_url || '', j.posterName || j.poster_name || '', j.postedAt || j.posted_at || '',
+       j.posterUrl || j.poster_url || '', j.posterName || j.poster_name || '', j.postUrl || j.post_url || '', j.postedAt || j.posted_at || '',
        +j.relevance || 0, (j.description || j.postText || '').slice(0, 2000), nowIso(),
        assessment.matchPercent, assessment.driftPercent, assessment.missingTerms.join(', '),
        assessment.tailoredEligible ? 'approval_required' : 'not_requested',
@@ -203,12 +204,13 @@ export function upsertJobs(list) {
          email = CASE WHEN email='' OR email IS NULL THEN ? ELSE email END,
          apply_url = CASE WHEN apply_url='' OR apply_url IS NULL THEN ? ELSE apply_url END,
          poster_url = CASE WHEN poster_url='' OR poster_url IS NULL THEN ? ELSE poster_url END,
+         post_url = CASE WHEN post_url='' OR post_url IS NULL THEN ? ELSE post_url END,
          posted_at = CASE WHEN posted_at='' OR posted_at IS NULL THEN ? ELSE posted_at END,
          cv_match_percent=?, cv_drift_percent=?, cv_missing_terms=?,
          tailor_status=CASE WHEN tailor_status='generated' THEN tailor_status ELSE ? END,
          selected_cv_id=?, selected_cv_path=?, selected_cv_reason=?
        WHERE url=?`,
-      [email, j.applyUrl || '', j.posterUrl || '', j.postedAt || '', assessment.matchPercent,
+      [email, j.applyUrl || '', j.posterUrl || '', j.postUrl || j.post_url || '', j.postedAt || '', assessment.matchPercent,
        assessment.driftPercent, assessment.missingTerms.join(', '), assessment.tailoredEligible ? 'approval_required' : 'not_requested',
        selection.id, selection.path, selection.reason, j.url]);
   }
