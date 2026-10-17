@@ -206,7 +206,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
     ${renderEvolutionTab(enc, learned, audits)}
   </div>
   <div class="pane" id="p-paths">
-    <p class="dim" style="margin:8px 0">Hops from <b>docs/paths</b>. Green reached success. Blue was reached. Red is a stop or a refusal. Follow the green and blue hops.</p>
+    <p class="dim" style="margin:8px 0">Decision trees from <b>docs/paths</b>. Green is success. Blue is reached. Red is stop or refused. Follow green and blue. Do not take a red branch.</p>
     ${renderPathsTab(traces)}
   </div>
   <div class="pane" id="p-sent">${renderEmailLogTable(emails)}</div>

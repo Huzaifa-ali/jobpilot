@@ -152,17 +152,17 @@ Indeed **Apply now** works in the normal signed-in window, with the debug port c
 
 ### Path traces
 
-Every agent reads [`docs/paths/`](docs/paths/) before it drives a site, then writes what happened. `AGENTS.md` makes this mandatory for every brain. One directory per site. One row is one hop: the URL, the option used, the next page, and the result.
+Every agent reads the decision tree in [`docs/paths/`](docs/paths/) before it drives a site, then updates that tree. `AGENTS.md` makes this mandatory for every brain. One directory per site. A `node` is a page. A `branch` is one choice: the control, the next node, and `reached`, `success`, `stop`, `refused`, or `retry`.
 
 ```mermaid
-flowchart LR
-  read["Read docs/paths/site/path.md"] --> go["Follow a success hop"]
-  go --> page["A new page opens"]
-  page --> row["Add one row"]
-  row --> next["The next agent starts from that row"]
+flowchart TD
+  read["Match the page to a node"] --> go["Take a reached or success branch"]
+  read --> stop["A stop or refused branch is a leaf"]
+  go --> page["A new page has no node"]
+  page --> add["Add that node and one branch"]
 ```
 
-Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a row that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. Indeed and Glassdoor each have a log. A new site gets its own directory on the first hop. The dashboard **Paths** tab draws every hop from those files.
+Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a branch that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. A new site gets its own directory on the first page. The dashboard **Paths** tab draws the tree.
 
 ---
 
@@ -291,7 +291,7 @@ Local only: **http://127.0.0.1:7788**
 - **Pipeline** — fresh leads, newest first, with per-lane status.
 - **Questions** — one answer, remembered. Agent-answered rows can be overridden.
 - **Evolution** — open encounters, screenshot, HTML snapshot, learned answers.
-- **Paths** — every hop in `docs/paths/`, one flow per site. Green is success, blue was reached, red is a stop or a refusal.
+- **Paths** — the decision tree in `docs/paths/`, one tree per site. Green is success, blue was reached, red is a stop or a refusal.
 - **Audit** — emails sent, applications, connects. Dedup warnings included.
 
 The UI is split under `src/dashboard/` so one section can change without a rewrite of the page.
@@ -305,7 +305,7 @@ jobpilot/
 ├── start.js                 # MCP entry: install, Chrome, respawn
 ├── mcp-server.js            # tool server + evolution loop
 ├── AGENTS.md                # the only brain guide; path traces are required
-├── docs/paths/              # one hop log per site; read it, then update it
+├── docs/paths/              # one decision tree per site; read it, then update it
 ├── src/
 │   ├── worker.js            # scout and dashboard; outreach only if not data-only
 │   ├── evolve.js            # encounters, answers, strategy

@@ -1,17 +1,47 @@
 # Glassdoor
 
-Normal window. Open Glassdoor before Indeed. Issue #2 stays open for the driven browser.
+```tree
+drive: normal_window
+port9222: closed
+follow: reached success
 
-| From | Option | To | Result |
-|---|---|---|---|
-| `https://www.glassdoor.com/profile/login_input.htm` | Continue with Google | signed-in Glassdoor | success |
-| Indeed, after that Google sign-in | the same Google account | Indeed accepts the account | success |
-| `https://www.glassdoor.com/Salaries/index.htm` | Browse jobs. Do not write a review or add a salary | `https://www.glassdoor.com/Job/index.htm` | success |
-| `/Job/index.htm` | Apply on employer site | the company site | seen, not submitted |
-| `/Job/index.htm` | Easy Apply | smartapply.indeed.com | refused |
-| `/Job/index.htm` | — | Whitelabel Error Page | retry, not a login wall |
-| debug window on Glassdoor | — | Humans only | stop |
-| Netherlands senior software engineer search | a job card | dialog "Create job alert" | reached. Close that dialog with its own close control. Do not press Save this alert. The browser window Close button is not the dialog close. |
-| that search | Easy Apply | — | refused |
+node login
+  see: /profile/login_input.htm
+  action: continue_with_google
+  branch success | Continue with Google | signed_in
 
-The jobs list is the page that loaded. In-site Apply now on Glassdoor has not been submitted.
+node signed_in
+  see: signed-in Glassdoor
+  branch success | the same Google account on Indeed | indeed_session
+
+node salaries
+  see: /Salaries/index.htm
+  action: browse_jobs
+  branch success | Browse jobs | jobs
+
+node jobs
+  see: /Job/index.htm
+  action: jobs_open
+  branch reached | Apply on employer site | company_site
+  branch refused | Easy Apply | smartapply
+  branch retry | Whitelabel Error Page | jobs
+
+node company_site
+  see: the employer site
+  action: company_site
+  branch reached | the company form | company_site
+
+node search
+  see: a job search on Glassdoor
+  branch reached | a job card opens Create job alert | alert
+  branch refused | Easy Apply | smartapply
+
+node alert
+  see: dialog Create job alert
+  branch reached | the dialog close control | search
+
+node debug
+  see: a debug window on Glassdoor, Humans only
+  action: stop
+  branch stop | leave the page | debug
+```
