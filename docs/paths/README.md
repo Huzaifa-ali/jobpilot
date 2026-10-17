@@ -6,4 +6,5 @@ Every brain reads this log before it drives a site, and updates it in the same c
 
 - [Indeed](indeed/path.md) — Apply now reached the submitted page.
 - [Glassdoor](glassdoor/path.md) — sign-in, then Salaries to the jobs list. In-site apply was not submitted.
-- [LinkedIn](linkedin/path.md) — signed-in feed in the normal window, then a latest-posts search.
+- [LinkedIn](linkedin/path.md) — signed-in feed in the normal window, then a latest-posts search. A security check on a job view is a stop.
+- [Greenhouse](greenhouse/path.md) — use the embed form. The public job URL can bounce back to the description. A city field that stays empty is a stop.

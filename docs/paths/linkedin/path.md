@@ -6,3 +6,4 @@ The signed-in normal window can open LinkedIn. Keep port 9222 closed while that 
 | --- | --- | --- | --- |
 | Indeed results in the normal window | new tab, then the address bar `https://www.linkedin.com/feed/` | Feed | reached |
 | that feed | address bar, content search `"we are hiring" "software engineer"`, `sortBy=date_posted` | Search posts, Latest | reached. Skip candidate posts, ads, and roles that are not on the profile. Wheel the results column to move down. Page Down does not scroll this list. |
+| `https://www.linkedin.com/jobs/view/4479573260/` | Easy Apply | LinkedIn security check | stop. Leave the check for the person. Do not submit while it is up. |
