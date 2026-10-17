@@ -518,10 +518,24 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
     await SLEEP(3000);
     const txt = await page.locator('body').innerText().catch(() => '');
     if (/weekly invitation limit|reached the weekly|you.?ve reached/i.test(txt)) { await page.close(); return { ok: false, result: 'limit', detail: 'LinkedIn weekly invitation limit reached' }; }
-    // Check dialog-gone as an additional confirmation signal.
-    // The 2026 LinkedIn UI dropped data-test-modal-id; check for any visible role=dialog instead.
+    // ── Confirmation signals (any one is sufficient) ──────────────────────────────
+    // LinkedIn 2026 shows a transient "Invitation sent" / "Your invitation to … was sent" toast
+    // that disappears within ~2 s, and only renders the top-card "Pending" button after a reload.
+    // The old check caught just the lingering text/dialog-gone state, which produced false
+    // "no Pending state after send" errors even though the invite WAS sent. Add the toast copy to
+    // the text signal and, when none of the fast signals fire, RELOAD once and re-check for the
+    // Pending button before declaring failure.
+    const TOAST_RE = /invitation sent|invitation to .{0,40} was sent|pending|withdraw/i;
     const dialogClosed = (await page.locator('div[role="dialog"]:visible, dialog[open]:visible').count().catch(() => 1)) === 0;
-    const pending = !!(await mainCol(page, /^pending$/i)) || /invitation sent|pending/i.test(txt.slice(0, 3000)) || dialogClosed;
+    let pending = !!(await mainCol(page, /^pending$/i)) || TOAST_RE.test(txt.slice(0, 3000)) || dialogClosed;
+    if (!pending) {
+      // Reload-and-confirm: LinkedIn frequently only exposes the Pending/Withdraw control after a
+      // fresh load. One reload + re-check avoids the false negative without spamming the network.
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+      await SLEEP(2500);
+      const txt2 = await page.locator('main').innerText().catch(() => '');
+      pending = !!(await mainCol(page, /^pending$/i)) || TOAST_RE.test(txt2.slice(0, 3000));
+    }
     await page.close();
     return pending
       ? { ok: true, result: usedNote ? 'connected' : 'connected_no_note', detail: usedNote ? 'invite + note sent' : 'invite sent (note quota likely exhausted)', note: usedNote ? note : '' }
