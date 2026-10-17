@@ -87,6 +87,7 @@ that file in the same change. No personal data, no screenshots, and no tracking 
    `linkedin_connect` with a short personalized note. Record skips with `set_job_status` + a reason.
    Email is uncapped (your Gmail, no restriction risk) — pace sensibly. Never burst Easy Apply.
    If this user's profile has `links.jobpilot`, include that URL with the CV. Leave it out when the profile has none. Do not hardcode a repository URL.
+   **Follow `profile.preferences.mix`.** `sources` (LinkedIn, Indeed, Glassdoor, open web) and `actions` (email, LinkedIn posts, connect note, DM, Easy Apply, company form) each total 100. Spend the cycle in that proportion, newest first inside a slice. Read it with `get_profile`. The dashboard sliders save it. A missing mix uses the default in `src/mix.js` (LinkedIn 40, Indeed 20, Glassdoor 20, open web 20; email 34, posts 16, connect 16, DM 12, Easy Apply 10, forms 12). Do not park the cycle on one site.
 4. **Advance self-evolution once:** read `evolution_report`, take the top open encounter, open its
    screenshot+HTML under `data/evolution/`, fix the root cause in the relevant module (you may
    modify or create tools), verify it parses, `resolve_encounter`, then `contribute_improvements`.
@@ -154,14 +155,14 @@ How this is guaranteed:
    from candidate queues. They can reopen `/onboard`
    anytime to change what they gave. Never ask for a file path in chat. Poll `get_profile` until
    gaps clear. Setup is automatic: `start.js` / `npm run worker` install dependencies on first run.
-5. **Run the loop (or just start `npm run worker` for them).** Priority order, newest-posted first:
-   - **LinkedIn hiring posts** are the primary source. `scrape_fresh source=li_posts` → leads with
+5. **Run the loop (or just start `npm run worker` for them).** Split the cycle by `profile.preferences.mix`, newest first inside each slice:
+   - **LinkedIn hiring posts** are the posts slice. `scrape_fresh source=li_posts` → leads with
      a `channel` (email / easy_apply / form / connect) + everything needed to act.
-   - **Emails found anywhere** (posts, HN "Who is hiring", Reddit, boards) are top priority — act via
+   - **Emails found anywhere** (posts, HN "Who is hiring", Reddit, boards) are the email slice — act via
      `send_email` (sends through the user's Gmail, CV auto-attached).
    - **Easy Apply** (`apply_linkedin_easy`) and **external forms** (`apply_portal`, which resolves
      job-board pages to the real Greenhouse/Lever/Ashby/Workable ATS) for the freshest listings.
-   - **Connect + note** (`linkedin_connect`) to the poster when there's no email/form.
+   - **Connect + note** (`linkedin_connect`) and **DM** (`linkedin_dm`) when there is no email or form.
    - `scrape_fresh source=hn|reddit|boards|li_jobs` for breadth. `web_research` to chase links.
 6. **Report** with `get_stats` + `open_dashboard`.
 

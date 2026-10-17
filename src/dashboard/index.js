@@ -30,6 +30,7 @@ import {
   renderQuestionsBanner,
 } from './partials/header.js';
 import { renderKpis, renderQueueCards } from './partials/kpis.js';
+import { renderMix } from './partials/mix.js';
 import {
   renderEmailLeadsTable,
   renderQueueTable,
@@ -160,6 +161,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
 
   ${renderKpis(today, tot)}
   ${renderQueueCards(queueCounts, doneCounts)}
+  ${renderMix(p.preferences)}
 
   <h2>🔥 Fresh email leads — LinkedIn posts first, then the web (HN, Reddit, boards) · newest first</h2>
   ${renderEmailLeadsTable(emailLeads)}
@@ -213,7 +215,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
 
   <h2>Status legend</h2>
   <div class="legend">${legend}</div>
-  <p class="dim" style="margin-top:8px">"Posted" = age of the post/listing (green &lt;6h, lime &lt;24h, yellow &lt;3d). Queues are processed in priority order: Email (LinkedIn posts → web) → Easy Apply → Forms → Connect, newest first.</p>
+  <p class="dim" style="margin-top:8px">"Posted" = age of the post/listing (green &lt;6h, lime &lt;24h, yellow &lt;3d). The mix above sets how the cycle is split. Newest leads come first inside each slice.</p>
 
 </div>
 
