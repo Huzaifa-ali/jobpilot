@@ -107,7 +107,7 @@ Newest posts first. The brain chooses. Tools do not pick a channel on their own.
 
 | Channel | Tool | What “done” means |
 |---|---|---|
-| Email | `send_email` | Sent from your Gmail. CV attached. Portfolio and links come from the profile. The JobPilot repo link is included: https://github.com/maazbin/jobpilot |
+| Email | `send_email` | Sent from your Gmail. CV attached. Portfolio and links come from the profile. A JobPilot repo line is added only when that user saved `links.jobpilot`. |
 | LinkedIn Easy Apply | `apply_linkedin_easy` | Modal walked, questions answered, “Application submitted” seen. |
 | External form | `apply_portal` | Job-board URL resolved to the real ATS, then submitted. |
 | Connect | `linkedin_connect` | A short note to the poster when there is no email and no form. |
