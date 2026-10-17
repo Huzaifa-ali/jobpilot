@@ -61,13 +61,13 @@ That is the entire per-brain step. Once wired, the brain reads this file and is 
 
 ## Path traces — required for every brain
 
-Before you drive a site, read `docs/paths/<site>/path.md`. The index is `docs/paths/README.md`.
-If that directory does not exist yet, create it on the first hop you finish. A row is the URL
-you were on, the control you used, the page that came next, and the result (`reached`,
-`success`, `stop`, `refused`, or `retry`). Follow `success` and `reached`. Do not repeat a
-`stop` or a `refused` hop. When this run reaches a new page, or shows a row was wrong, update
-that file in the same change. No personal data, no screenshots, and no tracking query such as
-`from=`. `classifyBoardPage()` in `src/mcp/board-pages.js` must name the same action.
+Before you drive a site, read the decision tree in `docs/paths/<site>/path.md`. The index is
+`docs/paths/README.md`. The tree is for you, not a human log. Match the page you are on to a
+`node` by its `see` line. Take a `branch` marked `reached` or `success`. Do not take `stop` or
+`refused`. A `retry` branch stays on that node. If the directory does not exist yet, create it
+on the first page you finish. A new page adds a `node` and a `branch` from the node you were on.
+A wrong hop changes that branch. No personal data, no screenshots, and no tracking query such as
+`from=`. `action` on an Indeed or Glassdoor node is the same name `classifyBoardPage()` returns.
 
 ### Your job when you are the brain driving a cycle
 

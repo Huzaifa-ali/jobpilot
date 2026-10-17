@@ -43,11 +43,23 @@ input.s{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10
 .ai{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 8px;border-radius:6px;width:420px;margin-right:6px;vertical-align:middle;font-family:inherit}
 .opt.rec{background:#14532d;border-color:#22c55e;color:#bbf7d0}
 .qbanner{background:#1a1407;border:1px solid #a16207;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#fcd34d}
-.trace{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.trace{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.tree-node{background:#0d1526;border:1px solid #1e293b;border-radius:8px;padding:8px 10px}
+.tree-node>b{font-size:13px}
+.tree-node>code{margin-left:8px;color:#93c5fd;font-size:11px}
+.tree-see{color:#94a3b8;font-size:12px;margin-top:2px}
+.tree-branch{margin:6px 0 0 8px;border-left:3px solid #60a5fa;padding:4px 8px}
+.tree-branch.hop-ok{border-left-color:#22c55e}
+.tree-branch.hop-stop{border-left-color:#f87171}
+.tree-branch.hop-wait{border-left-color:#f59e0b}
+.tree-branch i{font-style:normal;font-weight:700;font-size:11px;text-transform:uppercase;margin-right:8px}
+.tree-branch span,.tree-leaf,.tree-back{color:#94a3b8}
+.tree-branch em{font-style:normal;color:#e2e8f0;margin-left:8px}
+.tree-kids{margin:6px 0 0 14px}
+.tree-leaf,.tree-back{margin-top:4px;font-size:12px}
 .hop{background:#111a2e;border:1px solid #1e293b;border-left:3px solid #60a5fa;border-radius:8px;padding:8px 12px;display:grid;grid-template-columns:1.1fr 1.4fr 1fr auto;gap:8px}
 .hop-ok{border-left-color:#22c55e}.hop-stop{border-left-color:#f87171}.hop-wait{border-left-color:#f59e0b}
 .hop span,.hop em{color:#94a3b8;font-style:normal}.hop i{font-style:normal;font-weight:700;font-size:11px;text-transform:uppercase}
-.hop-next{color:#475569;text-align:center;line-height:1}
 .loginbanner{background:#2a0a0a;border:1px solid #b91c1c;border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:14px;color:#fecaca}
 .boardlogin{background:#111a2e;border:1px solid #334155;border-left:3px solid #38bdf8;border-radius:8px;padding:12px 16px;margin-bottom:14px;line-height:1.5}
 .boardlogin ol{margin:8px 0 8px 18px}

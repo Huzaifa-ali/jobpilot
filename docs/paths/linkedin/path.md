@@ -1,9 +1,24 @@
 # LinkedIn
 
-The signed-in normal window can open LinkedIn. Keep port 9222 closed while that window is also the Indeed and Glassdoor session. Open LinkedIn in a new tab so the other tab stays put. Do not click the browser window Close button. A checkpoint or a captcha is a stop.
+```tree
+drive: normal_window
+port9222: closed while this window is also the Indeed session
+follow: reached success
 
-| Where you were | Control | Next page | Result |
-| --- | --- | --- | --- |
-| Indeed results in the normal window | new tab, then the address bar `https://www.linkedin.com/feed/` | Feed | reached |
-| that feed | address bar, content search `"we are hiring" "software engineer"`, `sortBy=date_posted` | Search posts, Latest | reached. Skip candidate posts, ads, and roles that are not on the profile. Wheel the results column to move down. Page Down does not scroll this list. |
-| `https://www.linkedin.com/jobs/view/4479573260/` | Easy Apply | LinkedIn security check | stop. Leave the check for the person. Do not submit while it is up. |
+node feed
+  see: linkedin.com/feed/
+  branch reached | address bar, content search "we are hiring" "software engineer", sortBy=date_posted | posts
+
+node posts
+  see: search posts, Latest
+  branch reached | wheel the results column; skip posts that are not on the profile | posts
+
+node job
+  see: linkedin.com/jobs/view/
+  branch stop | Easy Apply while a security check is up | checkpoint
+
+node checkpoint
+  see: LinkedIn security check or a captcha
+  action: stop
+  branch stop | leave the check | checkpoint
+```
