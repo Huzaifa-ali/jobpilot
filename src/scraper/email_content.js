@@ -41,6 +41,7 @@ export function body(job, profile = getProfile()) {
   const skills = (profile.skills || []).slice(0, 5).join(', ') || 'modern engineering stacks';
   const loc = profile.location ? `, based in ${profile.location}` : '';
   const remote = profile.preferences?.remoteOnly ? ' and working remotely' : '';
+  const jobpilot = clean(L.jobpilot);
 
   return `${hi}
 
@@ -51,8 +52,7 @@ ${hook}
 Recent work:
 ${projects.map(p => `- ${p.name} (${p.url}) — ${p.blurb}`).join('\n')}
 
-CV attached. Portfolio: ${L.portfolio || ''}  ·  GitHub: ${L.github || ''}  ·  LinkedIn: ${L.linkedin || ''}
-JobPilot: https://github.com/maazbin/jobpilot
+CV attached. Portfolio: ${L.portfolio || ''}  ·  GitHub: ${L.github || ''}  ·  LinkedIn: ${L.linkedin || ''}${jobpilot ? `\nJobPilot: ${jobpilot}` : ''}
 
 Happy to do a quick call this week.
 
