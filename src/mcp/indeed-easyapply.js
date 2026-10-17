@@ -61,7 +61,9 @@ let _capHits = 0;                // # of times cooldown reached the 60-min cap (
 let _encounterLoggedThisCooldown = false; // ensures ONE encounter() per cooldown period, not per skip
 const SUBMIT_RE = /submit (your )?application|^submit$/i;
 const APPLY_NOW_RE = /^apply now$/i;
-const CONTINUE_RE = /^(continue|next|review)$/i;
+// Advance-button detection moved to findAdvanceButton() (label-unanchored + structural fallback)
+// to fix encounter #103 — the old anchored /^(continue|next|review)$/i missed smartapply's
+// span-wrapped, variably-labelled primary CTA ("Continue applying", "Review your application").
 const SUCCESS_URL_RE = /\/form\/post-apply/i;
 const SUCCESS_BODY_RE = /application has been submitted/i;
 const SMARTAPPLY_HOST = 'smartapply.indeed.com';
@@ -240,6 +242,45 @@ const SCAN_SMARTAPPLY = () => {
 // the shared engine; parks unknown REQUIRED questions via askLater and flags ctx.parked so the
 // caller leaves the application as a draft and never submits with blanks. Returns when a
 // review-module (or submit button) is reached, or after a bounded number of steps.
+// ── Advance-button resolver (smartapply Continue / Next / Review) ──────────────
+// Resolves the primary "move to the next module" control on a smartapply page, robust to the
+// label/structure variations that caused encounter #103 (×13). Strategy, in priority order:
+//   1. a <button> or role=button whose visible text or aria-label CONTAINS continue/next/review
+//      (UNANCHORED — matches "Continue", "Continue applying", "Next step", "Review your application").
+//   2. the smartapply primary footer CTA by structure, independent of label:
+//      [data-testid*="continue"], ia-continueButton / continueButton classes, or a
+//      form / smartapply-footer button[type="submit"].
+// Only a visible + enabled candidate is returned. Returns a Playwright Locator or null.
+async function findAdvanceButton(popup) {
+  const LABEL_RE = /continue|next|review/i;
+
+  // Strategy 1: real button / role=button whose text or aria-label contains the label.
+  const labelled = popup.locator('button, [role="button"], a[role="button"]');
+  const n = await labelled.count().catch(() => 0);
+  for (let i = 0; i < n; i++) {
+    const el = labelled.nth(i);
+    if (!(await el.isVisible().catch(() => false))) continue;
+    if (!(await el.isEnabled().catch(() => false))) continue;
+    const txt = ((await el.innerText().catch(() => '')) || '').trim();
+    const aria = ((await el.getAttribute('aria-label').catch(() => '')) || '').trim();
+    if (LABEL_RE.test(txt) || LABEL_RE.test(aria)) return el;
+  }
+
+  // Strategy 2: smartapply primary footer CTA by structure (label-independent).
+  const structural = popup.locator(
+    '[data-testid*="continue" i], [data-testid*="ia-continue" i], button[class*="continueButton" i], button[class*="ia-continue" i], form button[type="submit"], [class*="smartApplyFooter" i] button, [class*="ia-BasePage-footer" i] button'
+  );
+  const sn = await structural.count().catch(() => 0);
+  for (let i = 0; i < sn; i++) {
+    const el = structural.nth(i);
+    if (!(await el.isVisible().catch(() => false))) continue;
+    if (!(await el.isEnabled().catch(() => false))) continue;
+    return el;
+  }
+
+  return null;
+}
+
 async function fillSmartApply(popup, { job, ctx }) {
   const profile = getProfile();
   for (let step = 0; step < 12; step++) {
@@ -289,17 +330,22 @@ async function fillSmartApply(popup, { job, ctx }) {
     await SLEEP(600);
 
     // Advance: Continue / Next / Review.
-    const cont = popup.locator('button, a, span').filter({ hasText: CONTINUE_RE }).first();
-    const review = popup.locator('button, a, span').filter({ hasText: /review (your )?application|^review$/i }).first();
-    const advance = (await review.isVisible().catch(() => false)) ? review
-      : (await cont.isVisible().catch(() => false)) ? cont : null;
+    // Encounter #103 (×13, smartapply resume-selection-module): the old detector required a
+    // button/a/span whose FULL text matched the anchored CONTINUE_RE (/^(continue|next|review)$/i).
+    // smartapply renders the primary CTA as a <button> wrapping a <span> and the label varies
+    // ("Continue", "Continue applying", "Next", "Review your application"), so the anchored match
+    // missed it and the module was flagged stuck. findAdvanceButton() matches continue/next/review
+    // unanchored on button/role=button text+aria-label, with a structural footer-CTA fallback.
+    const advance = await findAdvanceButton(popup);
     if (!advance) {
       // No visible way forward and no review module → record it so it can be fixed in code.
       await encounter('indeed_easy', `no continue/submit on ${scan.moduleKind} module`, { url: popup.url(), page: popup });
       ctx.stuck = true;
       return;
     }
-    await advance.click().catch(() => {});
+    await advance.click({ timeout: 5000 }).catch(async () => {
+      await advance.click({ force: true, timeout: 3000 }).catch(() => {});
+    });
     await SLEEP(2500);
   }
 }
