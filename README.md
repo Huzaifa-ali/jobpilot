@@ -162,7 +162,7 @@ flowchart LR
   row --> next["The next agent starts from that row"]
 ```
 
-Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a row that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. Indeed and Glassdoor each have a log. A new site gets its own directory on the first hop.
+Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a row that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. Indeed and Glassdoor each have a log. A new site gets its own directory on the first hop. The dashboard **Paths** tab draws every hop from those files.
 
 ---
 
@@ -291,6 +291,7 @@ Local only: **http://127.0.0.1:7788**
 - **Pipeline** — fresh leads, newest first, with per-lane status.
 - **Questions** — one answer, remembered. Agent-answered rows can be overridden.
 - **Evolution** — open encounters, screenshot, HTML snapshot, learned answers.
+- **Paths** — every hop in `docs/paths/`, one flow per site. Green is success, blue was reached, red is a stop or a refusal.
 - **Audit** — emails sent, applications, connects. Dedup warnings included.
 
 The UI is split under `src/dashboard/` so one section can change without a rewrite of the page.
