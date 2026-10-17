@@ -59,6 +59,16 @@ for the common ones; the pattern for any MCP-capable CLI is the same — a stdio
 
 That is the entire per-brain step. Once wired, the brain reads this file and is fully capable.
 
+## Path traces — required for every brain
+
+Before you drive a site, read `docs/paths/<site>/path.md`. The index is `docs/paths/README.md`.
+If that directory does not exist yet, create it on the first hop you finish. A row is the URL
+you were on, the control you used, the page that came next, and the result (`reached`,
+`success`, `stop`, `refused`, or `retry`). Follow `success` and `reached`. Do not repeat a
+`stop` or a `refused` hop. When this run reaches a new page, or shows a row was wrong, update
+that file in the same change. No personal data, no screenshots, and no tracking query such as
+`from=`. `classifyBoardPage()` in `src/mcp/board-pages.js` must name the same action.
+
 ### Your job when you are the brain driving a cycle
 
 1. **Connect** to the JobPilot MCP (your CLI config above gives you the tools).
@@ -68,7 +78,9 @@ That is the entire per-brain step. Once wired, the brain reads this file and is 
    (`profile.preferences.locations`) and relocation stance (`workAuth.willingToRelocate`): when set,
    actively hunt **Middle East and EU** roles and **relocation / visa-sponsorship** openings — these
    are desirable, never skip them as "geo-locked". Save discovered leads with `save_jobs`.
-3. **Act on the freshest leads** in the bank. For each, judge relevance against the profile
+3. **Read the path trace, then act on the freshest leads.** Follow `docs/paths/<site>/path.md`
+   for that site before you open it, and update the trace when the hop changes. For each lead,
+   judge relevance against the profile
    (roles, skip list, salary, work-auth), then — after `check_already_actioned` — act via the right
    channel: email → `send_email` (CV auto-attaches); Easy Apply / LinkedIn job → `apply_linkedin_easy`;
    external form / ATS or job-board URL → `apply_portal`; only a poster, no email/form →
@@ -123,7 +135,7 @@ How this is guaranteed:
    - Then they sign in to Indeed with that same Google account.
    - Do not solve the check. Do not hide or spoof the browser. Do not attach Playwright
      during sign-in or during Apply now. Full notes: `docs/board-login.md`.
-     Hop logs, one directory per site: `docs/paths/`.
+     Read `docs/paths/` first and follow it. A `from=` tracking query is not part of the Indeed home.
    - Indeed **Apply now** is driven in that normal window, debug port closed. Use the
      page's own controls. Fill only real profile answers. If the country is wrong, change
      it. Stop on a captcha challenge. Count it only when the page says the application
