@@ -31,6 +31,6 @@ Indeed **Apply now** (the in-site form) is completed in this normal window. On 2
 - Stop if a captcha challenge is shown. The small reCAPTCHA notice under the form is not that challenge.
 - Record the job with `save_jobs` and `set_job_status` so it is not sent again.
 
-Glassdoor job pages load in the same window. The button seen there was **Apply on employer site**, which is the company-site path. Glassdoor Easy Apply is still refused. Issues #1 and #2 stay open for applying while a browser is being driven on port 9222.
+Glassdoor job pages load in the same window. The button seen there was **Apply on employer site**, which is the company-site path. Glassdoor Easy Apply is still refused. Issue #1 is closed: Indeed Apply now works in this window. Issue #2 stays open for Glassdoor while a browser is being driven on port 9222.
 
 Hop logs, one directory per site: `docs/paths/`.
