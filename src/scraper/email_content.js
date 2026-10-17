@@ -52,6 +52,7 @@ Recent work:
 ${projects.map(p => `- ${p.name} (${p.url}) — ${p.blurb}`).join('\n')}
 
 CV attached. Portfolio: ${L.portfolio || ''}  ·  GitHub: ${L.github || ''}  ·  LinkedIn: ${L.linkedin || ''}
+JobPilot: https://github.com/maazbin/jobpilot
 
 Happy to do a quick call this week.
 

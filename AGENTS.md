@@ -86,6 +86,7 @@ that file in the same change. No personal data, no screenshots, and no tracking 
    external form / ATS or job-board URL → `apply_portal`; only a poster, no email/form →
    `linkedin_connect` with a short personalized note. Record skips with `set_job_status` + a reason.
    Email is uncapped (your Gmail, no restriction risk) — pace sensibly. Never burst Easy Apply.
+   Every application email includes the JobPilot repo, https://github.com/maazbin/jobpilot, with the CV. A custom body includes that link too.
 4. **Advance self-evolution once:** read `evolution_report`, take the top open encounter, open its
    screenshot+HTML under `data/evolution/`, fix the root cause in the relevant module (you may
    modify or create tools), verify it parses, `resolve_encounter`, then `contribute_improvements`.
