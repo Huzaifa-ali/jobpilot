@@ -18,6 +18,11 @@ a{color:#60a5fa;text-decoration:none}.dim{color:#64748b}.role{max-width:300px;co
 .k{background:#111a2e;border:1px solid #1e293b;border-top:3px solid;border-radius:10px;padding:12px 16px;min-width:120px}
 .kv{font-size:28px;font-weight:800;line-height:1}.kl{font-size:11px;color:#94a3b8;margin-top:5px}
 .qs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.mix{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:14px}
+.mixbox{background:#111a2e;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;min-width:0}
+.mixbox h2{margin-top:0}.mix .dim,.mix button{grid-column:1 / -1}
+.mixrow{display:flex;align-items:center;gap:8px;margin:6px 0;min-width:0}.mixrow span{width:118px;flex:none}.mixrow b{width:32px;text-align:right;flex:none}.mixrow input{flex:1 1 0;width:0;min-width:0;accent-color:#38bdf8}
+.mix button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;width:max-content}@media(max-width:800px){.mix{grid-template-columns:minmax(0,1fr)}.mixrow span{width:104px}}
 .qc{display:block;background:#111a2e;border:1px solid;border-radius:10px;padding:12px 16px;color:#cbd5e1;cursor:pointer}
 .qh{font-weight:800;font-size:14px;margin-bottom:4px}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin:18px 0 8px}
