@@ -148,7 +148,7 @@ This is the line we will keep. New work happens after this tag.
 
 ## Since v3.2.0
 
-Indeed **Apply now** works in the normal signed-in window, with the debug port closed. Three in-site applications reached the page that says the application was submitted. The jobs home is `https://pk.indeed.com/`. A `from=` tracking parameter is not part of that page. Typing `viewjob?jk=` into the address bar stops on Additional Verification. Leave that page. Do not click the check. Glassdoor job pages load after Google sign-in, and in-site Apply now there has still not been submitted. Issues [#1](https://github.com/maazbin/jobpilot/issues/1) and [#2](https://github.com/maazbin/jobpilot/issues/2) stay open for a driven browser.
+Indeed **Apply now** works in the normal signed-in window, with the debug port closed. Three in-site applications reached the page that says the application was submitted. The jobs home is `https://pk.indeed.com/`. A `from=` tracking parameter is not part of that page. Typing `viewjob?jk=` into the address bar stops on Additional Verification. Leave that page. Do not click the check. Glassdoor job pages load after Google sign-in, and in-site Apply now there has still not been submitted. Issue [#1](https://github.com/maazbin/jobpilot/issues/1) is closed. Issue [#2](https://github.com/maazbin/jobpilot/issues/2) stays open for a driven Glassdoor browser.
 
 ### Path traces
 
@@ -170,8 +170,7 @@ Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a row
 
 These are real walls. JobPilot records them and routes around them. It does not pretend to slip past a bot check.
 
-- **Indeed** — a driven browser gets a check with no form ([#1](https://github.com/maazbin/jobpilot/issues/1)). Sign-in works after Glassdoor. Apply now then works in that normal window. See below.
-- **Glassdoor** — a driven browser stops on "Humans only" ([#2](https://github.com/maazbin/jobpilot/issues/2)). A normal window plus Google sign-in works. Job pages there show Apply on employer site.
+- **Glassdoor** — a driven browser stops on "Humans only" ([#2](https://github.com/maazbin/jobpilot/issues/2)). A normal window plus Google sign-in works. Job pages there show Apply on employer site. In-site Apply now has not been submitted.
 - **Workday, iCIMS, Taleo, SuccessFactors** — account-gated, multi-step ATS ([#3](https://github.com/maazbin/jobpilot/issues/3))
 - **Some job-board redirects** — Arbeitnow, We Work Remotely, Himalayas ([#4](https://github.com/maazbin/jobpilot/issues/4))
 - **hCaptcha on Lever** — the submit button is found. A captcha challenge still needs a person.
@@ -205,7 +204,7 @@ Sign in to these two with the worker stopped and the debug window closed. The da
 
 Opening Indeed first sticks on a check with no form. JobPilot does not solve that check. The notes for the next agent are in [`docs/board-login.md`](docs/board-login.md).
 
-Keep the debug port closed after sign-in. Indeed **Apply now** is the in-site form in that same window. The hop log is [`docs/paths/indeed/path.md`](docs/paths/indeed/path.md). Applications reached "Your application has been submitted". A captcha challenge still stops the apply. The debug-port path is unchanged, so issues #1 and #2 stay open. Glassdoor's log is [`docs/paths/glassdoor/path.md`](docs/paths/glassdoor/path.md).
+Keep the debug port closed after sign-in. Indeed **Apply now** is the in-site form in that same window. The hop log is [`docs/paths/indeed/path.md`](docs/paths/indeed/path.md). Applications reached "Your application has been submitted". A captcha challenge still stops the apply. The debug-port path is unchanged. Issue #1 is closed. Issue #2 stays open. Glassdoor's log is [`docs/paths/glassdoor/path.md`](docs/paths/glassdoor/path.md).
 
 ![Dashboard sign-in card](docs/dashboard-board-login.png)
 

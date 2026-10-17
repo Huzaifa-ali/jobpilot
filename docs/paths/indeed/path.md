@@ -1,6 +1,6 @@
 # Indeed
 
-Normal window, debug port closed. Issue #1 stays open for the driven browser.
+Normal window, debug port closed. Issue #1 is closed. The driven browser still stops on Additional Verification. Do not click the check.
 
 | From | Option | To | Result |
 |---|---|---|---|

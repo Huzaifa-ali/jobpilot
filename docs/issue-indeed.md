@@ -22,7 +22,7 @@ ToS-respecting automation of Indeed apply is not currently feasible from a drive
 A person can sign in, but not inside the debug Chrome and not by opening Indeed first. Stop the workers, close the debug window, sign in to Glassdoor with Google, then sign in to Indeed with that same Google account. See `docs/board-login.md`. Applying while Playwright is attached is still unsolved. `resolveIndeed()` follows a company-site redirect only when the page is reachable.
 
 ### Learned Apply now (2026-10-16)
-Apply now works in that same normal window, with the debug port closed. In-site applications on `smartapply.indeed.com` reached "Your application has been submitted". Every agent reads `docs/paths/indeed/path.md` before driving Indeed and adds a row when a new page is reached. The jobs home is `https://pk.indeed.com/`. Do not type `viewjob?jk=` into the address bar. Drive the page controls. Do not attach Playwright and do not solve a captcha challenge. The worker's driven browser still stops on the check, so issue #1 stays open for that path.
+Apply now works in that same normal window, with the debug port closed. In-site applications on `smartapply.indeed.com` reached "Your application has been submitted". Every agent reads `docs/paths/indeed/path.md` before driving Indeed and adds a row when a new page is reached. The jobs home is `https://pk.indeed.com/`. Do not type `viewjob?jk=` into the address bar. Drive the page controls. Do not attach Playwright and do not solve a captcha challenge. The worker's driven browser still stops on the check. That path is a stop, not an open blocker. Issue #1 is closed.
 
 ### Good first contribution
 Add an `indeed.com` branch in `forms.js` that extracts the employer's real careers/ATS link
