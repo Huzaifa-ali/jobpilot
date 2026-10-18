@@ -533,8 +533,15 @@ export async function connect({ profileUrl, posterName, role, company, withNote 
       // fresh load. One reload + re-check avoids the false negative without spamming the network.
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
       await SLEEP(2500);
-      const txt2 = await page.locator('main').innerText().catch(() => '');
-      pending = !!(await mainCol(page, /^pending$/i)) || TOAST_RE.test(txt2.slice(0, 3000));
+      // After reload the sent state surfaces as EITHER a "Pending" control OR a "Withdraw"
+      // control (Withdraw only exists once an invitation is pending). The 2026 top card often
+      // renders "Withdraw" rather than "Pending", so matching only /^pending$/ produced false
+      // "no Pending state after send" errors even though the invite WAS sent. Accept both, and
+      // scan the full-page text (not just <main>) for the pending/withdraw toast as a final signal.
+      const txt2 = await page.locator('body').innerText().catch(() => '');
+      pending = !!(await mainCol(page, /^pending$/i))
+        || !!(await mainCol(page, /^withdraw$|withdraw invitation/i))
+        || TOAST_RE.test(txt2.slice(0, 3000));
     }
     await page.close();
     return pending
