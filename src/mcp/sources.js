@@ -3,7 +3,6 @@
 //   liPosts      — LinkedIn hiring posts (past-24h, date-sorted) → emails / forms / poster
 //   liJobs       — LinkedIn job listings (past-24h, remote, worldwide + PK), Easy Apply flag
 //   hnHiring     — latest HN "Who is hiring?" thread, comments with emails, newest first
-//   redditHiring — r/forhire, r/remotejs, r/jobbit … [Hiring] posts with emails
 //   publicBoards — remoteok / remotive / himalayas / jobicy (email in description if any)
 import fetch from 'node-fetch';
 import { getContext } from '../agent/browser.js';
@@ -321,57 +320,6 @@ export async function hnHiring({ maxAgeHours = 24 * 10 } = {}) {
   }
   console.error(`[scrape] hnHiring: ${totalComments} comments fetched, ${topLevel} top-level, ${passedGeo} passed geo filter, ${leads.length} leads (${leads.filter(l => l.email).length} email, ${leads.filter(l => l.applyUrl).length} form)`);
   return { ok: true, leads, detail: `HN "${story.title}": ${leads.length} leads (${leads.filter(l => l.email).length} email)` };
-}
-
-// ── Reddit hiring posts (public JSON, newest first) ──────────────────────────
-export async function redditHiring({ subs = ['forhire', 'remotejs', 'jobbit', 'PythonJobs', 'MachineLearningJobs', 'hiring', 'RemoteJobs'], maxAgeHours = 72 } = {}) {
-  console.error('[scrape] redditHiring: starting');
-  const leads = []; const since = Date.now() / 1000 - maxAgeHours * 3600;
-  // Reddit 403s non-browser clients → fetch the JSON from inside the user's Chrome.
-  let ctx;
-  try { ctx = await getContext(); } catch (e) {
-    console.error('[scrape] redditHiring: getContext() failed:', e.message);
-    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
-  }
-  let page;
-  try { page = await ctx.newPage(); } catch (e) {
-    console.error('[scrape] redditHiring: newPage() failed:', e.message);
-    return { ok: false, leads: [], detail: `new page error: ${e.message}` };
-  }
-  try {
-  await page.goto('https://www.reddit.com/r/forhire/new/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await SLEEP(6000); // reddit does a client-side redirect/bot check before same-origin fetch works
-  for (const sub of subs) {
-    try {
-      const j = await page.evaluate(async s => { const r = await fetch(`/r/${s}/new.json?limit=50&raw_json=1`); return r.ok ? r.json() : null; }, sub).catch(() => null);
-      if (!j) { console.error(`[scrape] redditHiring: r/${sub} returned null`); continue; }
-      let subCount = 0;
-      for (const { data: d } of j.data?.children || []) {
-        if (d.created_utc < since) continue;
-        const title = d.title || '';
-        if (!/\bhiring\b/i.test(title)) continue;
-        if (/\[for hire\]/i.test(title)) continue;
-        const text = `${title}\n${d.selftext || ''}`;
-        const sc = score(text, title);
-        const emails = emailsIn(text);
-        const form = (text.match(/https?:\/\/[^\s)\]]+/g) || []).find(l => FORM_RE.test(l)) || '';
-        leads.push({
-          source: `reddit_${sub}`, company: guessCompany(text) || `r/${sub}`, role: guessRole(title) || title.replace(/\[[^\]]*\]/g, '').trim().slice(0, 90),
-          url: `https://www.reddit.com${d.permalink}`, email: emails[0] || '', emails, applyUrl: form, description: text.slice(0, 2000),
-          postedAt: new Date(d.created_utc * 1000).toISOString(), channel: emails[0] ? 'email' : form ? 'form' : 'none', portal: emails[0] ? 'email' : detectPortal(form),
-          relevance: sc.rel, skip: sc.skip, skipWhy: sc.why, remote: true,
-        });
-        subCount++;
-      }
-      console.error(`[scrape] redditHiring: r/${sub} → ${subCount} leads`);
-    } catch (e) { console.error(`[scrape] redditHiring: r/${sub} error:`, e.message); }
-    await SLEEP(1200);
-  }
-  } finally {
-    await page.close().catch(() => {});
-  }
-  console.error(`[scrape] redditHiring: total ${leads.length} leads (${leads.filter(l => l.email).length} email)`);
-  return { ok: true, leads, detail: `${leads.length} reddit leads (${leads.filter(l => l.email).length} email)` };
 }
 
 // ── Public remote boards (fresh, filtered) ───────────────────────────────────

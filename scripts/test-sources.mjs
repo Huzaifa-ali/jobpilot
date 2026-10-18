@@ -1,9 +1,9 @@
-// test-sources.mjs — node scripts/test-sources.mjs [liPosts|liJobs|hn|reddit|boards] [query]
+// test-sources.mjs — node scripts/test-sources.mjs [liPosts|liJobs|hn|boards] [query]
 import { initDB } from '../src/tracker.js';
 import * as S from '../src/mcp/sources.js';
 await initDB();
 const which = process.argv[2], q = process.argv[3] || 'hiring python remote';
-const fn = { liPosts: () => S.liPosts(q), liJobs: () => S.liJobs(q), hn: () => S.hnHiring(), reddit: () => S.redditHiring(), boards: () => S.publicBoards() }[which];
+const fn = { liPosts: () => S.liPosts(q), liJobs: () => S.liJobs(q), hn: () => S.hnHiring(), boards: () => S.publicBoards() }[which];
 const r = await fn();
 console.log(r.detail);
 const rows = r.leads.filter(l => !l.skip).sort((a, b) => (b.postedAt || '').localeCompare(a.postedAt || ''));

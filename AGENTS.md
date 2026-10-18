@@ -73,7 +73,7 @@ that file in the same change. No personal data, no screenshots, and no tracking 
 
 1. **Connect** to the JobPilot MCP (your CLI config above gives you the tools).
 2. **Find jobs across the WHOLE internet — not just LinkedIn.** LinkedIn posts/jobs are one source;
-   also use `web_research` / `scrape_public_source` / `scrape_fresh` (hn/reddit/boards) to search the
+   also use `web_research` / `scrape_public_source` / `scrape_fresh` (hn/boards) to search the
    open web, company careers pages, and regional job boards. Honor the user's location preferences
    (`profile.preferences.locations`) and relocation stance (`workAuth.willingToRelocate`): when set,
    actively hunt **Middle East and EU** roles and **relocation / visa-sponsorship** openings — these
@@ -158,12 +158,12 @@ How this is guaranteed:
 5. **Run the loop (or just start `npm run worker` for them).** Split the cycle by `profile.preferences.mix`, newest first inside each slice:
    - **LinkedIn hiring posts** are the posts slice. `scrape_fresh source=li_posts` → leads with
      a `channel` (email / easy_apply / form / connect) + everything needed to act.
-   - **Emails found anywhere** (posts, HN "Who is hiring", Reddit, boards) are the email slice — act via
+   - **Emails found anywhere** (posts, HN "Who is hiring", boards) are the email slice — act via
      `send_email` (sends through the user's Gmail, CV auto-attached).
    - **Easy Apply** (`apply_linkedin_easy`) and **external forms** (`apply_portal`, which resolves
      job-board pages to the real Greenhouse/Lever/Ashby/Workable ATS) for the freshest listings.
    - **Connect + note** (`linkedin_connect`) and **DM** (`linkedin_dm`) when there is no email or form.
-   - `scrape_fresh source=hn|reddit|boards|li_jobs` for breadth. `web_research` to chase links.
+   - `scrape_fresh source=hn|boards|li_jobs` for breadth. `web_research` to chase links.
 6. **Report** with `get_stats` + `open_dashboard`.
 
 ## The self-evolution loop — do this every session
@@ -311,7 +311,7 @@ consent toggle, the worker stand-down, and CI); the loop itself always runs.
 ## Tools (31)
 
 Setup: `launch_chrome` · `onboard_status` · `open_onboarding` · `get_profile` · `set_profile`
-Search: `generate_queries` · `scrape_fresh` (li_posts/li_jobs/hn/reddit/boards) · `scrape_linkedin_posts` · `scrape_logged_in_site` · `scrape_public_source` · `web_research`
+Search: `generate_queries` · `scrape_fresh` (li_posts/li_jobs/hn/boards) · `scrape_linkedin_posts` · `scrape_logged_in_site` · `scrape_public_source` · `web_research`
 Act: `process_lead` · `send_email` · `apply_portal` · `apply_linkedin_easy` · `linkedin_connect` · `linkedin_dm`
 Memory: `save_jobs` · `check_already_actioned` · `list_jobs` · `set_job_status`
 Evolve: `evolution_report` · `list_questions` · `learn_answer` · `list_encounters` · `resolve_encounter`

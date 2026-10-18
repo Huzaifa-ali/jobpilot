@@ -296,9 +296,8 @@ async function scout() {
       // 2) The wider internet — HN, public boards — run ALL of them EVERY loop (unbiased variety,
       //    no LinkedIn dependence, mostly email/form leads). This keeps email/form leads flowing
       //    even while LinkedIn is cooling/paused, so the email channel never starves.
-      //    Reddit is intentionally excluded by default (per user request): its bot-check/redirect
-      //    flow is noisy and low-yield. Un-starvation comes from HN/Boards getting more turns,
-      //    never from re-enabling Reddit.
+      //    (Reddit was removed entirely per user request: its bot-check/redirect flow was noisy
+      //    and low-yield. Un-starvation comes from HN/Boards getting more turns.)
       const web = [
         ['HN', () => hnHiring({ maxAgeHours: 240 })],
         ['Boards', () => publicBoards({ maxAgeHours: 72 })],

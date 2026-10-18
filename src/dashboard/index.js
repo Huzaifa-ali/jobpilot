@@ -163,7 +163,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
   ${renderQueueCards(queueCounts, doneCounts)}
   ${renderMix(p.preferences)}
 
-  <h2>🔥 Fresh email leads — LinkedIn posts first, then the web (HN, Reddit, boards) · newest first</h2>
+  <h2>🔥 Fresh email leads — LinkedIn posts first, then the web (HN, boards) · newest first</h2>
   ${renderEmailLeadsTable(emailLeads)}
 
   <div class="tabs">
