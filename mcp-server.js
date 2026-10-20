@@ -50,6 +50,14 @@ async function timed(tool, target, args, maxAttempts, fn) {
 
 const ok  = obj => ({ content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] });
 
+// Search and outreach stay closed until this clone has its own profile.
+const NEEDS_PROFILE = new Set([
+  'generate_queries', 'scrape_public_source', 'scrape_logged_in_site', 'scrape_linkedin_posts',
+  'scrape_fresh', 'web_research', 'find_jobs', 'save_jobs', 'send_email', 'apply_portal',
+  'apply_linkedin_easy', 'easyapply_inspect', 'easyapply_apply_with_answers',
+  'linkedin_connect', 'linkedin_dm', 'comment_interested', 'process_lead', 'run_script',
+]);
+
 let PORT = Number(process.env.JOB_AGENT_PORT) || 7788;
 let UI_STARTED = false;   // true once startServer() has actually bound the port
 
@@ -72,7 +80,7 @@ const TOOLS = [
   },
   {
     name: 'onboard_status',
-    description: 'Check setup: is Chrome debug running, which sites are logged in, what profile fields are missing (CV, links, roles). CALL THIS FIRST. Returns gaps the user must fill and whether the browser is ready.',
+    description: 'CALL THIS FIRST. Reports Chrome, logins, and profileGaps. When onboarded is false, the only next step is open_onboarding. Do not search or apply.',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => {
       const cdp = await cdpStatus();
@@ -84,15 +92,19 @@ const TOOLS = [
       const want = ['linkedin', 'gmail'];
       const loggedIn = want.filter(k => logins[k]);
       const needLogin = want.filter(k => !logins[k]);
-      const loginHint = !cdp.ok
-        ? 'Chrome debug not up — call launch_chrome.'
-        : needLogin.length
-          ? `Please log into: ${needLogin.join(' + ')} in the debug Chrome window (open linkedin.com / mail.google.com, sign in), then continue.`
-          : 'LinkedIn + Gmail sessions verified live.';
+      const gaps = profileGaps();
+      if (gaps.length) await ensureUI();
+      const loginHint = gaps.length
+        ? `No profile yet. Open http://127.0.0.1:${PORT}/onboard and wait until the gaps are clear. Do not search, email, or apply.`
+        : !cdp.ok
+          ? 'Chrome debug not up — call launch_chrome.'
+          : needLogin.length
+            ? `Please log into: ${needLogin.join(' + ')} in the debug Chrome window (open linkedin.com / mail.google.com, sign in), then continue.`
+            : 'LinkedIn + Gmail sessions verified live.';
       const LOGIN_URL = { linkedin: 'https://www.linkedin.com/login', gmail: 'https://mail.google.com/' };
       // Hand the user ONE-CLICK links for exactly the sites that need a login.
       const loginLinks = needLogin.map(s => ({ site: s, url: LOGIN_URL[s] }));
-      return ok({ chrome: cdp, loggedIn, needLogin, loginLinks, loginDetail: logins.detail, loginHint, profileGaps: profileGaps(), onboarded: isOnboarded(), onboardingUrl: `http://127.0.0.1:${PORT}/onboard`, openTabs: tabs.slice(0, 15) });
+      return ok({ chrome: cdp, loggedIn, needLogin, loginLinks, loginDetail: logins.detail, loginHint, phase: gaps.length ? 'onboard' : 'ready', profileGaps: gaps, onboarded: gaps.length === 0, onboardingUrl: `http://127.0.0.1:${PORT}/onboard`, openTabs: tabs.slice(0, 15) });
     },
   },
   {
@@ -547,6 +559,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const tool = TOOLS.find(t => t.name === req.params.name);
   if (!tool) return { content: [{ type: 'text', text: `Unknown tool: ${req.params.name}` }], isError: true };
   try {
+    if (NEEDS_PROFILE.has(tool.name) && !isOnboarded()) {
+      await ensureUI();
+      return ok({
+        ok: false,
+        phase: 'onboard',
+        onboarded: false,
+        profileGaps: profileGaps(),
+        onboardingUrl: `http://127.0.0.1:${PORT}/onboard`,
+        detail: 'No profile yet. Run npm run agent if the data worker is down, open the onboarding URL, and wait until profileGaps is empty. Do not search, email, or apply.',
+      });
+    }
     return await tool.handler(req.params.arguments || {});
   } catch (e) {
     return { content: [{ type: 'text', text: `Error in ${req.params.name}: ${e.message}` }], isError: true };

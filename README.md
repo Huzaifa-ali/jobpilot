@@ -136,7 +136,7 @@ This is the line we will keep. New work happens after this tag.
 - Phone-country widgets and cookie bars are closed before an external form is submitted.
 - Easy Apply treats an intercepted LinkedIn click as a throttle and backs off, instead of hammering the page.
 - Each job can select a private CV variant from `preferences.cvVariants`. The canonical CV stays the fallback. Resumes never go in git.
-- Search treats Middle East, EU, relocation, and visa sponsorship as desirable. Country scope still blocks outreach outside the profile when that scope is on.
+- Search uses only the places and roles on the profile. An empty profile does not search. Relocation and visa sponsorship are used when that profile asks for them. Country scope blocks outreach outside the profile country.
 
 **The loop around the code**
 
@@ -221,11 +221,18 @@ git clone https://github.com/maazbin/jobpilot
 cd jobpilot
 ```
 
-### 2. Open the folder in your agent
+### 2. Install, start the data worker, then open the folder in your agent
 
-Say:
+```bash
+npm install
+npm run agent
+```
 
-> Find relevant jobs, write to the people who are hiring, and keep the evolution loop moving.
+`npm install` is also what `start.js` runs on a fresh clone. `npm run agent` keeps the data worker up. It does not email or apply. With no profile, it waits.
+
+Then open the folder in your agent and say:
+
+> Set up JobPilot. Install what is missing, start the data worker, and onboard me. Do not search or apply until my profile is saved.
 
 The repo already contains the MCP config. `start.js` installs dependencies, opens Chrome on the debug port, and serves the tools. Approve the server if the CLI asks.
 
@@ -253,16 +260,9 @@ Add this to the global MCP config, with the absolute path to `start.js`:
 
 ### 3. Let the brain drive
 
-[`AGENTS.md`](AGENTS.md) is the standing guide. The brain checks `onboard_status`, opens `http://127.0.0.1:7788/onboard` if the profile has gaps, and then searches, judges, and acts. You upload the CV in that form. You never paste a file path into chat.
+[`AGENTS.md`](AGENTS.md) is the standing guide. The first path is [`docs/paths/setup/path.md`](docs/paths/setup/path.md). The brain checks `onboard_status`, opens `http://127.0.0.1:7788/onboard` while the profile has gaps, and waits. You upload the CV in that form. You never paste a file path into chat. Search and outreach start only after that form is complete.
 
-Keep the hands alive in another terminal:
-
-```bash
-npm install
-npm run agent
-```
-
-That process only scrapes and refreshes the dashboard. Stop it with the dashboard button or `npm run stop`.
+The data worker is the process started above. It scrapes and refreshes the dashboard after onboarding. Stop it with the dashboard button or `npm run stop`.
 
 `npm run worker` still contains the older action lanes. The supported setup is `npm run agent` plus your own CLI as the brain, so outreach is never double-sent.
 
