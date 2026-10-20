@@ -22,7 +22,7 @@ import { sendViaGmail } from './mcp/gmail.js';
 import { subject as mkSubject, body as mkBody } from './scraper/email_content.js';
 import { writeDash } from './dashboard.js';
 import { startServer } from './server.js';
-import { getProfile, isExcludedCompany } from './profile.js';
+import { getProfile, isExcludedCompany, isOnboarded } from './profile.js';
 import { outcome, rankByUCB, learnedSkip, writePlaybook, domainOf, encounter } from './evolve.js';
 import { buildQueries, buildListingQueries } from './mcp/queries.js';
 import { DATA } from './config.js';
@@ -149,7 +149,7 @@ const authorizedCountries = () => {
   const p = getProfile();
   const list = [p.country, ...(p.workAuth?.authorizedIn || []), ...(p.preferences?.locations || [])]
     .filter(Boolean).map(s => String(s).toLowerCase());
-  return list.length ? list : ['pakistan'];
+  return list;
 };
 // True only when the role's text names a work-auth requirement for a country the user is
 // NOT authorized in. A requirement that matches the user's own country is answerable, not a wall.
@@ -159,8 +159,9 @@ const requiresWorkAuthorization = r => {
   if (!WORK_AUTH_REQUIRED.test(text)) return false;
   const lc = text.toLowerCase();
   const auth = authorizedCountries();
-  // If the lead is anchored to a country the user IS authorized in (e.g. Pakistan), the
-  // auth question is answerable — do not hard-skip. Only skip when it points elsewhere.
+  // No country on the profile means we do not invent one. A named authorization wall
+  // is skipped only when the profile lists countries and none of them appear here.
+  if (!auth.length) return false;
   if (auth.some(c => lc.includes(c))) return false;
   // Relocation/visa-sponsorship preference: if the user is open to relocating AND the role offers
   // sponsorship/relocation OR sits in a preferred region (Middle East / EU / …), it is DESIRABLE,
@@ -223,36 +224,30 @@ function jobCvAttachment(j, p) {
   return attachment;
 }
 
-// Country scope is an action gate, not just a search hint: old/global queue entries and
-// Pakistan-only action gate — applied at queue time so non-Pakistan jobs never reach outreach.
+// Country scope keeps outreach inside the profile country. It never assumes a country.
 const PK_CITIES = /\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot|hyderabad)\b/i;
 const GEO_LOCK_ACTION = /\b(us|u\.s\.|usa|united states|uk|u\.k\.|united kingdom|eu|europe|european union|canada|india|brazil|latam|germany|australia|singapore|hong kong)[- ]?(only|based only|residents? only|citizens? only|timezone|tz)\b|\bmust (be|reside|live|work) (located |based )?in (the )?(us|usa|uk|eu|canada|india|europe)\b|\bus citizen|security clearance|\bh1b\b|\bno[- ]?sponsorship\b/i;
 
 function locationAllowed(job) {
+  if (!isOnboarded()) return false;
   const profile = getProfile();
   if (profile.preferences?.locationScope !== 'country') return true;
+  const country = String(profile.country || '').trim().toLowerCase();
+  if (!country) return false;
 
   const location = String(job.location || '').toLowerCase();
   const source   = String(job.source   || '').toLowerCase();
   const desc     = String(job.description || '').slice(0, 600).toLowerCase();
+  const inCountry = text => text.includes(country) || (country === 'pakistan' && PK_CITIES.test(text));
 
-  // 1. Pakistani board sources — always in scope
-  if (/rozee|mustakbil/.test(source)) return true;
-
-  // 2. Explicit Pakistan location
-  if (location.includes('pakistan') || PK_CITIES.test(location)) return true;
-
-  // 3. LinkedIn posts/easy — must have a Pakistan signal in location OR description.
-  //    A blank location with no Pakistan mention could be a global post → reject it.
+  if (/rozee|mustakbil/.test(source)) return country === 'pakistan';
+  if (inCountry(location)) return true;
   if (/^linkedin/.test(source)) {
-    if (location) return location.includes('pakistan') || PK_CITIES.test(location);
-    // blank location: only allow if the post text explicitly mentions Pakistan and is not geo-locked elsewhere
-    if (GEO_LOCK_ACTION.test(desc)) return false;
-    return /pakistan|karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|remote.{0,20}pakistan/.test(desc);
+    if (location) return false;
+    if (GEO_LOCK_ACTION.test(desc) && !desc.includes(country)) return false;
+    return inCountry(desc);
   }
-
-  // 4. Everything else must explicitly mention Pakistan (location or description)
-  return /pakistan|karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar/.test(desc);
+  return inCountry(desc);
 }
 
 // ── ingest helper ────────────────────────────────────────────────────────────
@@ -271,6 +266,7 @@ function ingest(leads) {
 async function scout() {
   let i = 0;
   while (running()) {
+    if (!isOnboarded()) { beat('scout', 'waiting for onboarding'); await SLEEP(15000); continue; }
     try {
       const postQ = rankByUCB('post_query', buildQueries({ limit: 30 }));
       const jobQ = rankByUCB('job_query', buildListingQueries({ limit: 18 }));
@@ -310,8 +306,12 @@ async function scout() {
       if (i % 2 === 0 && !loginBackoff('LinkedIn')) {
         const jq = jobQ[0];
         beat('scout', `LI jobs: ${jq}`);
-        const geoIds = getProfile().preferences?.locationScope === 'country' ? ['101022442'] : ['92000000', '101022442'];
-        for (const geoId of geoIds) { // Pakistan only in country scope; otherwise worldwide + Pakistan
+        const profile = getProfile();
+        const country = String(profile.country || '').toLowerCase();
+        const geoIds = profile.preferences?.locationScope === 'country'
+          ? (country === 'pakistan' ? ['101022442'] : [])
+          : ['92000000'];
+        for (const geoId of geoIds) {
           const rj = await liJobs(jq, { easyOnly: true, tpr: 86400, geoId, pages: 1 });
           if (rj.ok) { const { n } = ingest(rj.leads); outcome('job_query', jq, { yieldN: n }); clearLogin('LinkedIn'); }
           else if (notLoggedIn(rj.detail)) flagLogin('LinkedIn', 'Please log into LinkedIn in the JobPilot Chrome window — scraping is paused until you do');
@@ -329,6 +329,7 @@ async function scout() {
 // ── MAILER lane ────────────────────────────────────────────────────────────────
 async function mailer() {
   while (running()) {
+   if (!isOnboarded()) { beat('mailer', 'waiting for onboarding'); await SLEEP(15000); continue; }
    try {
     // Email daily cap: 0/absent = UNLIMITED (default). Only enforce if the user set a positive ceiling.
     const emailCap = emailDailyCap();
@@ -394,6 +395,7 @@ async function applier() {
   // never blocks the pipeline, never raises the cap on a bad fetch.
   maybeRefreshEasyApplyLimit().catch(() => {});
   while (running()) {
+    if (!isOnboarded()) { beat('applier', 'waiting for onboarding'); await SLEEP(15000); continue; }
     let appliedEasy = false;     // set when an Easy Apply submission succeeds → longer cooldown
     const liCooling = Date.now() < liCooldownUntil || needsLogin('LinkedIn');
     // While LinkedIn is cooling down OR needs a login, only run the forms side (non-LinkedIn traffic).
@@ -508,6 +510,7 @@ function easyApplyCooldownRange() {
 let connectPaused = false;
 async function connector() {
   while (running()) {
+   if (!isOnboarded()) { beat('connector', 'waiting for onboarding'); await SLEEP(15000); continue; }
    try {
     if (connectPaused || capLeft('connect', 'connect') <= 0) { beat('connector', connectPaused ? 'paused (weekly limit)' : 'daily cap'); await SLEEP(15 * 60000); continue; }
     if (needsLogin('LinkedIn')) { beat('connector', 'paused — waiting for you to log into LinkedIn'); await SLEEP(60000); continue; }
@@ -660,6 +663,7 @@ lanes.push(['refresher', refresher]);
 const laneNames = lanes.map(([n]) => n).join(' · ');
 say('main', `worker start${DRY ? ' (DRY)' : ''}${DATA_ONLY ? ' (DATA-ONLY — agent handles outreach)' : ''} — concurrent lanes: ${laneNames}`);
 say('main', `dashboard + Stop button live at http://127.0.0.1:${uiPort}`);
+if (!isOnboarded()) say('main', `no profile yet — finish http://127.0.0.1:${uiPort}/onboard before any search or outreach`);
 beat('main', 'running', { uiPort, dataOnly: DATA_ONLY });
 // Watchdog: when the Stop flag appears (UI/CLI), exit the whole process promptly.
 (async () => { while (!stopped()) await SLEEP(1500); say('main', '⏹ Stop requested — shutting down all lanes'); beat('main', 'stopped'); await SLEEP(500); process.exit(0); })();

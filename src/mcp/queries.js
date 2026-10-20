@@ -12,51 +12,49 @@ const APPLY_SIGNALS = ['email your cv', 'dm me', 'apply', 'remote'];
  * Each role gets a few phrasings; country-scoped profiles also inject location terms
  * so LinkedIn content search surfaces local hiring posts.
  */
-export function buildQueries({ limit = 30 } = {}) {
-  const p = getProfile();
-  const roles = (p.preferences?.roles || []).length
-    ? p.preferences.roles
-    : ['DevOps Engineer', 'Site Reliability Engineer', 'Cloud Engineer', 'Platform Engineer', 'Cloud Infrastructure Engineer', 'Cloud Solution Architect'];
+function selectedRoles(p) {
+  return (p.preferences?.roles || []).map(r => String(r).trim()).filter(Boolean);
+}
+
+/** Queries for one profile. An empty role list returns nothing — no default persona. */
+export function queriesFromProfile(p, { limit = 30 } = {}) {
+  const roles = selectedRoles(p);
+  if (!roles.length) return [];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
-
-  // Country-scoped: append location terms so LinkedIn content search surfaces local hiring posts.
-  const isCountryScope = p.preferences?.locationScope === 'country';
-  const isPakistan = isCountryScope && String(p.country || '').toLowerCase() === 'pakistan';
-  const locationVariants = isPakistan ? [' Pakistan', ' Karachi', ' Lahore', ''] : [''];
-
-  // Preferred relocation regions (Middle East, EU, …) from the profile — when the user is open to
-  // relocation, actively surface regional + visa-sponsorship/relocation hiring, not just remote.
-  const prefLocs = (p.preferences?.locations || []).slice(0, 8);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const country = String(p.country || '').trim();
+  const isCountryScope = p.preferences?.locationScope === 'country' && country;
+  const locationVariants = isCountryScope ? [` ${country}`, ''] : [''];
+  const prefLocs = (p.preferences?.locations || []).map(s => String(s).trim()).filter(Boolean).slice(0, 8);
+  const wantsRelo = p.workAuth?.willingToRelocate === true && prefLocs.length > 0;
 
   const out = new Set();
   for (const role of roles) {
-    for (const loc of locationVariants) {   // all location variants per role
+    for (const loc of locationVariants) {
       out.add(`hiring ${role}${loc}${remote}`);
       out.add(`we are hiring ${role}${loc}${remote}`);
     }
     out.add(`looking for ${role}${remote} email your cv`);
-    // Region-targeted + relocation/visa-sponsorship phrasings (Middle East / EU preference).
     if (wantsRelo) {
       for (const loc of prefLocs) {
         out.add(`hiring ${role} ${loc}`);
         out.add(`${role} ${loc} visa sponsorship`);
       }
-      out.add(`${role} relocation visa sponsorship`);
-      out.add(`hiring ${role} relocation Middle East`);
-      out.add(`hiring ${role} relocation Europe`);
     }
   }
   return [...out].slice(0, limit);
 }
 
+export function buildQueries({ limit = 30 } = {}) {
+  return queriesFromProfile(getProfile(), { limit });
+}
+
 /** Queries for LinkedIn JOB LISTINGS (jobs/search), roles + skills + freelance. */
-export function buildListingQueries({ limit = 18 } = {}) {
-  const p = getProfile();
-  const roles = (p.preferences?.roles || []).length ? p.preferences.roles : ['DevOps Engineer', 'Site Reliability Engineer', 'Cloud Engineer', 'Platform Engineer', 'Cloud Infrastructure Engineer', 'Cloud Solution Architect'];
+export function listingQueriesFromProfile(p, { limit = 18 } = {}) {
+  const roles = selectedRoles(p);
+  if (!roles.length) return [];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
-  const prefLocs = (p.preferences?.locations || []).slice(0, 6);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const prefLocs = (p.preferences?.locations || []).map(s => String(s).trim()).filter(Boolean).slice(0, 6);
+  const wantsRelo = p.workAuth?.willingToRelocate === true && prefLocs.length > 0;
   const out = new Set();
   for (const r of roles) {
     out.add(`${r}${remote}`);
@@ -65,13 +63,14 @@ export function buildListingQueries({ limit = 18 } = {}) {
   return [...out].slice(0, limit);
 }
 
+export function buildListingQueries({ limit = 18 } = {}) {
+  return listingQueriesFromProfile(getProfile(), { limit });
+}
+
 /** Freelance/marketplace listing queries (login-free boards too). */
 export function buildFreelanceQueries() {
-  const p = getProfile();
-  const roles = (p.preferences?.roles || []).length ? p.preferences.roles : ['DevOps Engineer', 'Cloud Engineer', 'Platform Engineer'];
-  const base = roles.map(r => `freelance ${r}`);
-  const out = new Set(base);
-  return [...out];
+  const roles = selectedRoles(getProfile());
+  return [...new Set(roles.map(r => `freelance ${r}`))];
 }
 
 /**

@@ -36,7 +36,7 @@ const DEFAULT_PROFILE = {
   salary: {},            // legacy/default expected salary: { amount, currency, period }
   currentSalary: {},     // current compensation: { amount, currency, period }
   salaryExpectations: [], // [{ country, min, max, currency, period }]
-  workAuth: {},          // { needsSponsorship:bool, authorizedIn:["Pakistan"], willingToRelocate:bool }
+  workAuth: {},          // { needsSponsorship:bool, authorizedIn:["<country>"], willingToRelocate:bool }
 
   // Files
   cvPath: '',            // absolute path to CV/resume PDF
