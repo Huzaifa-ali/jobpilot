@@ -20,8 +20,9 @@ a{color:#60a5fa;text-decoration:none}.dim{color:#64748b}.role{max-width:300px;co
 .qs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
 .mix{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:14px}
 .mixbox{background:#111a2e;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;min-width:0}
-.mixbox h2{margin-top:0}.mix .dim,.mix button{grid-column:1 / -1}
-.mixrow{display:flex;align-items:center;gap:8px;margin:6px 0;min-width:0}.mixrow span{width:118px;flex:none}.mixrow b{width:32px;text-align:right;flex:none}.mixrow input{flex:1 1 0;width:0;min-width:0;accent-color:#38bdf8}
+.mixbox h2{margin-top:0}.mix .dim,.mix button,.mix .keepbox{grid-column:1 / -1}
+.mixrow{display:flex;align-items:center;gap:8px;margin:6px 0;min-width:0}.mixrow span{width:118px;flex:none}.mixrow b{width:32px;text-align:right;flex:none}.mixrow input[type=range]{flex:1 1 0;width:0;min-width:0;accent-color:#38bdf8}
+.keeprow{display:flex;align-items:flex-start;gap:8px;margin:6px 0}.keeprow input{width:auto;flex:none;margin-top:2px;accent-color:#38bdf8}.keeprow span{width:auto;flex:1;line-height:1.4}
 .mix button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;width:max-content}@media(max-width:800px){.mix{grid-template-columns:minmax(0,1fr)}.mixrow span{width:104px}}
 .qc{display:block;background:#111a2e;border:1px solid;border-radius:10px;padding:12px 16px;color:#cbd5e1;cursor:pointer}
 .qh{font-weight:800;font-size:14px;margin-bottom:4px}
