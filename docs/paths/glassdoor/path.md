@@ -8,7 +8,11 @@ follow: reached success
 node login
   see: /profile/login_input.htm
   action: continue_with_google
-  branch success | Continue with Google | signed_in
+  branch success | Continue with Google | google
+
+node google
+  see: window title Sign in - Google Accounts
+  branch success | the person finishes Google sign-in | signed_in
 
 node signed_in
   see: signed-in Glassdoor

@@ -8,6 +8,6 @@ A new page adds a `node` and a `branch` from the node you were on. A wrong hop c
 
 - [Setup](setup/path.md) — first clone, or any session with profile gaps. `fresh` to `ready`. Search and outreach are `stop` until the profile exists.
 - [Indeed](indeed/path.md) — `home` to `post_apply`. Success is only the submitted sentence.
-- [Glassdoor](glassdoor/path.md) — `login` then `salaries` to `jobs`. Easy Apply is `refused`. The employer site is `company_site`.
+- [Glassdoor](glassdoor/path.md) — `login` through Google, then `salaries` to `jobs`. Easy Apply is `refused`. The employer site is `company_site`.
 - [LinkedIn](linkedin/path.md) — `feed` to `posts`. A security check on `job` is `stop`.
 - [Greenhouse](greenhouse/path.md) — follow `embed`. `careers` and `public_job` are `stop`. An empty city field is `stop`.
