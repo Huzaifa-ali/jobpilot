@@ -10,6 +10,66 @@ import { getContext } from '../agent/browser.js';
 import { getProfile, excludedCompanyMatch } from '../profile.js';
 import { isBadEmail } from '../tracker.js';
 
+// Which leads stay in the queue.
+// Keep a remote role with no country allow-list (a timezone overlap is fine),
+// or a role that offers visa sponsorship or relocation in a place this profile lists.
+// Onsite and hybrid need that offer. "No sponsorship" is not an offer.
+// Missing preferences.keepRemoteOrVisa means the filter is on.
+const REFUSAL = /\b(?:no (?:visa )?sponsorship|not able to offer relocation|unable to (?:provide |offer )?(?:visa )?sponsorship|(?:do not|don't|cannot|can't|will not|won't) (?:offer |provide )?(?:visa )?sponsor(?:ship)?|sponsorship (?:is )?(?:not|isn't) (?:available|provided|offered))\b/i;
+const OFFER = /\b(?:visa sponsorship|sponsorship (?:available|provided|offered)|will sponsor|we sponsor|relocation (?:assistance|package|support|provided|offered)|able to offer relocation|work permit (?:provided|sponsored))\b/i;
+const REMOTE = /\b(?:remote|work from anywhere|anywhere in the world|worldwide|fully remote|100%\s*remote)\b/i;
+const ONSITE = /\b(?:onsite|on-site|hybrid|in[- ]office|work from (?:the )?office)\b/i;
+const TZ = /\b(?:time\s*zones?|timezones?|hours|overlap|cet|cest|est|edt|pst|pdt|gmt|utc)\b/i;
+const LOCK_REGION = /\b(?:u\.?s\.?a?|united states|uk|u\.k\.|united kingdom|eu|europe|european union|emea|latam|latin america|canada|india|brazil|australia|germany|france|spain|singapore|hong kong)\b/i;
+const OPEN_WORDS = /\b(?:worldwide|anywhere|global|any country)\b/i;
+
+export function keepRemoteOrVisaEnabled(profile = {}) {
+  return profile?.preferences?.keepRemoteOrVisa !== false;
+}
+
+function placeHit(text, place) {
+  const escaped = String(place).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, 'i').test(text);
+}
+
+function listedOffer(text, profile) {
+  if (!OFFER.test(text) || REFUSAL.test(text)) return false;
+  const places = (profile?.preferences?.locations || []).map(s => String(s).trim()).filter(s => s.length >= 2);
+  if (!places.length) return true;
+  return places.some(place => placeHit(text, place));
+}
+
+export function countryLocked(text = '') {
+  const lc = String(text).toLowerCase();
+  if (/\b(?:us|u\.s\.|usa|uk|eu|emea|latam)[-\s]+only\b/.test(lc)) return true;
+  if (/\b(?:citizens?|residents?)\s+only\b/.test(lc) && LOCK_REGION.test(lc)) return true;
+  if (/\bmust (?:be |already )?(?:located|based|reside|live)[^.]{0,40}\b(?:us|usa|uk|eu|canada|india|europe)\b/.test(lc)) return true;
+  if (/\bremote\s+(?:in|from|within)\s+(?:the\s+)?(?:us|usa|uk|eu|emea|latam|canada|india)\b/.test(lc)) return true;
+  // "Remote - US" is a country list. "Remote, US timezones" is an overlap, not a list.
+  if (/\bremote\s*[-–—:,]\s*(?:the\s+)?(?:us|u\.s\.|usa|united states|uk|u\.k\.|eu|europe|canada|india)\b(?!\s*(?:time\s*zones?|timezones?|hours|overlap))/.test(lc)) return true;
+  const parens = [...lc.matchAll(/\bremote\b[^.\n]{0,40}\(([^)]{1,60})\)/g)].map(m => m[1]);
+  for (const inside of parens) {
+    if (OPEN_WORDS.test(inside)) continue;
+    if (TZ.test(inside)) continue;
+    if (LOCK_REGION.test(inside)) return true;
+  }
+  return false;
+}
+
+/** @returns {{ keep: boolean, why: string }} */
+export function leadKeep(text = '', profile = {}) {
+  if (!keepRemoteOrVisaEnabled(profile)) return { keep: true, why: '' };
+  const slice = String(text || '').slice(0, 2500);
+  const remote = REMOTE.test(slice);
+  const locked = countryLocked(slice);
+  const offer = listedOffer(slice, profile);
+  if (remote && !locked) return { keep: true, why: '' };
+  if (offer) return { keep: true, why: '' };
+  if (locked) return { keep: false, why: 'remote is limited to a country list' };
+  if (ONSITE.test(slice)) return { keep: false, why: 'onsite or hybrid without visa or relocation in a listed place' };
+  return { keep: true, why: '' };
+}
+
 const SLEEP = ms => new Promise(r => setTimeout(r, ms));
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0 Safari/537.36';
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -42,13 +102,13 @@ export function detectPortal(url = '') {
 const FORM_RE = /greenhouse|lever\.co|ashbyhq|workable|smartrecruiters|breezy|recruitee|bamboohr|jobvite|teamtailor|rippling|personio|forms\.gle|docs\.google\.com\/forms|typeform|tally\.so|\/careers?\/|\/jobs?\//i;
 
 /** Relevance 0..1 + hard skip. Title drives it (the full text has every buzzword).
- *  Returns {rel, skip, why} */
+ *  Returns {rel, skip, why}. Optional profile is for tests; callers use the saved profile. */
 const CV_TITLE = /\b(devops|site reliability|sre|cloud|platform|infrastructure|solutions? architect|cloud architect|kubernetes|terraform)\b/i;
 const NON_CV_TITLE = /\b(ai|a\.i\.|ml|machine learning|llm|gen ?ai|generative|nlp|rag|agent(ic)?|data scientist|data engineer|analytics|backend|back[- ]end|full[- ]?stack|software engineer|frontend|front[- ]end|developer|application engineer|product engineer|project manager|manager|director|vp|head of|chief|course|training|certification|tutorial|bootcamp|class)\b/i;
 const OFF_STACK = /\b(java(?!script)|\.net|c#|ruby|rails|rust|golang|ios|android|swift|kotlin|flutter|php|wordpress|shopify|salesforce|sap|servicenow|qa|test(er|ing)?|quality|sdet|manager|director|vp|head of|chief|designer|sales|marketing|support|analyst|embedded|firmware|hardware|mechanical|electrical|civil|network engineer|security engineer|unity|game|blockchain|solidity|mainframe|cobol|angular|react native|frontend|front[- ]end)\b/i;
 const GEO_LOCK = /\b(us|u\.s\.|usa|united states|uk|eu|europe|canada|india|brazil|br|latam|germany|australia)[- ]?(only|based only|residents? only|citizens? only)\b|\bmust (be|reside|live) (located |based )?in (the )?(us|usa|united states|uk|eu|canada|india)\b|\b(remote|hybrid)\s*\([^)]*\b(tx|md|in|ca|ny|wa|ma|va|fl|nj|il|ga|co|az|or|ut|dc)\b[^)]*\)|\b(remote|hybrid)\s*\(?(?:u\.?s\.?|usa|united states)\)?|\b100%\s+remote\s*\(?(?:u\.?s\.?|usa|united states)\)?|\b(onsite|on-site|work from office|wfo|hybrid)\b(?![^.]{0,40}remote)|\bus citizen|security clearance|\bh1b\b|\bvisa sponsorship\b|\bsponsorship required\b|\bmust have work authorization\b|(?:us|u\.s\.|united states)\s+(?:citizens?|nationals?|permanent residents?|green card holders?|ead holders?)|\bgreen card holders?\b|\bead holders?\b|\b(?:unable|cannot|can\'t) sponsor\b|\bno sponsorship\b|\bsponsorship (?:is )?(?:not|isn\'t) (?:available|provided|offered)\b|\bw-?2\b/i;
-export function score(text = '', title = '') {
-  const p = getProfile();
+export function score(text = '', title = '', profile) {
+  const p = profile || getProfile();
   const t = text.toLowerCase();
   const excluded = excludedCompanyMatch(text, p);
   // CRITICAL: skip-term and off-stack checks must ONLY fire on the job TITLE, never the
@@ -81,14 +141,21 @@ export function score(text = '', title = '') {
   // "visa sponsorship" / "relocation" / a preferred region (Middle East, EU, …) is a POSITIVE
   // signal, not a geo-lock to skip. Only treat geo as a hard skip when the role is locked to a
   // region the user is NOT targeting AND no relocation/sponsorship is offered.
-  const prefLocs = (p.preferences?.locations || []).map(s => String(s).toLowerCase());
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
-  const head2500 = text.slice(0, 2500).toLowerCase();
-  const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
-  const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
-  const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
-  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion));
-  const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geo ? 'location-restricted / authorization' : '';
+  let geoWhy = '';
+  if (keepRemoteOrVisaEnabled(p)) {
+    const decision = leadKeep(`${title || ''}\n${text || ''}`, p);
+    geoWhy = decision.keep ? '' : decision.why;
+  } else {
+    // Switch off: previous rule. A preferred place or any visa/relocation line clears the lock.
+    const prefLocs = (p.preferences?.locations || []).map(s => String(s).toLowerCase());
+    const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+    const head2500 = text.slice(0, 2500).toLowerCase();
+    const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
+    const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
+    const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
+    if (geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion))) geoWhy = 'location-restricted / authorization';
+  }
+  const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geoWhy;
   return { rel: +rel.toFixed(2), skip: !!why, why };
 }
 
