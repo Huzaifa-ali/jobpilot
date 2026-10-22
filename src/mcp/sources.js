@@ -70,7 +70,21 @@ export function score(text = '', title = '') {
     const glued = key.replace(/[^a-z0-9]+/g, '');
     return head.includes(key) || (glued.length > 3 && headGlued.includes(glued));
   });
-  const core = roleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head));
+  // `guessRole` can miss a clean title on free-form LinkedIn posts, which wrongly dropped real
+  // Pakistan AI/ML/Python/Backend jobs as "title not aligned". Rescue with a body-level signal:
+  // if the post text clearly names a target role or core skill, treat it as aligned even when the
+  // title regex came up empty. Scoped to the first 400 chars so unrelated buzzwords deep in a
+  // post don't rescue an off-target role.
+  const headBody = (titleOnly ? titleOnly + ' ' : '') + t.slice(0, 400);
+  const headBodyGlued = headBody.replace(/[^a-z0-9]+/g, '');
+  const bodyRoleHit = (p.preferences?.roles || []).some(role => {
+    const key = String(role || '').toLowerCase().trim();
+    if (key.length < 3) return false;
+    const glued = key.replace(/[^a-z0-9]+/g, '');
+    return headBody.includes(key) || (glued.length > 3 && headBodyGlued.includes(glued));
+  });
+  const CORE_SKILL = /\b(python|fastapi|django|flask|langchain|langgraph|\brag\b|llm|gen ?ai|generative ai|agentic|machine learning|ml engineer|backend|back[- ]end|api)\b/i;
+  const core = roleHit || bodyRoleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head)) || (CORE_SKILL.test(headBody) && !OFF_STACK.test(head));
   const offStack = OFF_STACK.test(head) && !/\b(python|ai|ml|llm|fastapi|django)\b/.test(head);
   let hit = 0; for (const s of terms) if (t.includes(s)) hit++;
   const rel = Math.min(1, (core ? 0.45 : 0) + 0.55 * Math.min(1, hit / 6));
@@ -86,8 +100,16 @@ export function score(text = '', title = '') {
   const head2500 = text.slice(0, 2500).toLowerCase();
   const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
   const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
+  // Onsite/hybrid is NOT a geo-lock when the user targets their own country and the role sits in
+  // it — a Karachi onsite role is desirable, not a reject. Detect a home-country onsite role and
+  // exempt it from the geo-lock skip. Foreign geo-locks (US/UK/EU only, clearance, no-sponsorship)
+  // still apply.
+  const homeCountry = String(p.country || '').toLowerCase();
+  const homeCities = homeCountry === 'pakistan' ? /\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot)\b/i : null;
+  const inHomeCountry = !!homeCountry && (head2500.includes(homeCountry) || (homeCities && homeCities.test(head2500)));
+  const foreignGeoLock = /\b(us|u\.s\.|usa|united states|uk|u\.k\.|eu|europe|canada|india|germany|australia)[- ]?(only|based only|residents? only|citizens? only)\b|\bus citizen|security clearance|\bh1b\b|\bno[- ]?sponsorship\b|\bgreen card\b/i.test(head2500);
   const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
-  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion));
+  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion)) && !(inHomeCountry && !foreignGeoLock);
   const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geo ? 'location-restricted / authorization' : '';
   return { rel: +rel.toFixed(2), skip: !!why, why };
 }
@@ -192,10 +214,15 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const postUrl = r.urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.urn}/` : '';
       console.error(`[scrape] liPosts: post "${(role || query).slice(0, 40)}" — permalink ${postUrl ? `found (urn:li:activity:${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
+      // Surface a geo signal from the post body so the Pakistan location gate takes the explicit-
+      // location pass instead of the strict blank-location branch. LinkedIn SDUI posts carry no
+      // structured location, so scan the text for a PK city / "Pakistan" and stamp lead.location.
+      const geoHit = (text.match(/\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot|pakistan)\b/i) || [])[0];
+      const location = geoHit ? (/[a-z]/i.test(geoHit) && geoHit.toLowerCase() !== 'pakistan' ? `${geoHit[0].toUpperCase()}${geoHit.slice(1)}, Pakistan` : 'Pakistan') : '';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName, location,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });
@@ -212,7 +239,7 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
 
 // ── LinkedIn job listings (freshest) ─────────────────────────────────────────
 // geo 92000000 = Worldwide. tpr seconds: 86400 = 24h.
-export async function liJobs(query, { easyOnly = true, tpr = 86400, geoId = '92000000', pages = 2 } = {}) {
+export async function liJobs(query, { easyOnly = true, tpr = 86400, geoId = '92000000', pages = 2, workType = '' } = {}) {
   console.error('[scrape] liJobs: starting, query=' + query);
   let ctx;
   try { ctx = await getContext(); } catch (e) {
@@ -228,7 +255,11 @@ export async function liJobs(query, { easyOnly = true, tpr = 86400, geoId = '920
   const out = [];
   try {
     for (let pg = 0; pg < pages; pg++) {
-      const u = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}&f_WT=2${easyOnly ? '&f_AL=true' : ''}&f_TPR=r${tpr}&sortBy=DD${geoId ? '&geoId=' + geoId : ''}&start=${pg * 25}`;
+      // f_WT (work type) is now OPTIONAL. The old hardcoded f_WT=2 (remote-only) excluded every
+      // onsite/hybrid Pakistan Easy-Apply role. Omit it by default so onsite + hybrid + remote all
+      // show; callers can still pin remote with workType='2'.
+      const wt = workType ? `&f_WT=${workType}` : '';
+      const u = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}${wt}${easyOnly ? '&f_AL=true' : ''}&f_TPR=r${tpr}&sortBy=DD${geoId ? '&geoId=' + geoId : ''}&start=${pg * 25}`;
       await page.goto(u, { waitUntil: 'domcontentloaded', timeout: 40000 });
       await SLEEP(3500);
       // scroll the results list so all 25 cards render
