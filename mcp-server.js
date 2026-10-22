@@ -487,16 +487,23 @@ const TOOLS = [
     name: 'scrape_fresh',
     description: "Pull the FRESHEST leads from a source, each stamped with posted_at so you can act newest-first. source: 'li_posts' (LinkedIn hiring posts, past 24h) | 'li_jobs' (LinkedIn Easy-Apply listings, 24h) | 'indeed' (Indeed Pakistan 'Easily apply' listings) | 'hn' (latest HN 'Who is hiring') | 'reddit' (r/forhire etc) | 'boards' (RemoteOK/Remotive/Jobicy/Himalayas). Returns leads with channel (email/easy_apply/indeed_easy/form/connect), relevance, skip flag. Save with save_jobs.",
     inputSchema: { type: 'object', properties: { source: { type: 'string' }, query: { type: 'string' } }, required: ['source'] },
-    handler: async ({ source, query }) => timed('scrape_fresh', `${source}:${query || ''}`, { source, query }, 0, async () => {
-      const r = source === 'li_posts' ? await liPosts(query || 'hiring remote email cv')
-        : source === 'li_jobs' ? await liJobs(query || 'AI Engineer')
-        : source === 'indeed' ? await indeedEasyApplyListings(query || 'AI Engineer')
-        : source === 'hn' ? await hnHiring()
-        : source === 'reddit' ? await redditHiring()
-        : source === 'boards' ? await publicBoards()
-        : { ok: false, leads: [], detail: 'unknown source' };
-      return { ...r, count: (r.leads || []).length };
-    }),
+    handler: async ({ source, query }) => {
+      const r = await timed('scrape_fresh', `${source}:${query || ''}`, { source, query }, 0, async () => {
+        const rr = source === 'li_posts' ? await liPosts(query || 'hiring remote email cv')
+          : source === 'li_jobs' ? await liJobs(query || 'AI Engineer')
+          : source === 'indeed' ? await indeedEasyApplyListings(query || 'AI Engineer')
+          : source === 'hn' ? await hnHiring()
+          : source === 'reddit' ? await redditHiring()
+          : source === 'boards' ? await publicBoards()
+          : { ok: false, leads: [], detail: 'unknown source' };
+        return { ...rr, count: (rr.leads || []).length };
+      });
+      // Persist scraped leads so they land in the job bank (dedup by URL), like find_jobs does.
+      const leads = Array.isArray(r.leads) ? r.leads : [];
+      let newlySaved = 0;
+      if (leads.length) { try { newlySaved = upsertJobs(leads); writeDash(); } catch { /* non-fatal */ } }
+      return ok({ ...r, newlySaved });
+    },
   },
 
   // ───────── Self-evolution memory ─────────
