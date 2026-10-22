@@ -20,14 +20,16 @@ export function buildQueries({ limit = 30 } = {}) {
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
 
   // Country-scoped: append location terms so LinkedIn content search surfaces local hiring posts.
-  const isCountryScope = p.preferences?.locationScope === 'country';
+  // Scope is signalled by the literal 'country' OR a country name ('pakistan') in locationScope.
+  const scope = String(p.preferences?.locationScope || '').toLowerCase();
+  const isCountryScope = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
   const isPakistan = isCountryScope && String(p.country || '').toLowerCase() === 'pakistan';
-  const locationVariants = isPakistan ? [' Pakistan', ' Karachi', ' Lahore', ''] : [''];
+  const locationVariants = isPakistan ? [' Pakistan', ' Karachi', ' Lahore', ' Islamabad'] : [''];
 
-  // Preferred relocation regions (Middle East, EU, …) from the profile — when the user is open to
-  // relocation, actively surface regional + visa-sponsorship/relocation hiring, not just remote.
+  // Relocation/visa phrasings surface FOREIGN roles. A country-scoped profile (Pakistan only)
+  // must never emit them — the mere presence of Pakistan locations must NOT count as "wants relo".
   const prefLocs = (p.preferences?.locations || []).slice(0, 8);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const wantsRelo = !isCountryScope && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
 
   const out = new Set();
   for (const role of roles) {
@@ -35,8 +37,9 @@ export function buildQueries({ limit = 30 } = {}) {
       out.add(`hiring ${role}${loc}${remote}`);
       out.add(`we are hiring ${role}${loc}${remote}`);
     }
-    out.add(`looking for ${role}${remote} email your cv`);
-    // Region-targeted + relocation/visa-sponsorship phrasings (Middle East / EU preference).
+    // Country scope keeps the local "email your cv" phrasing bound to the country.
+    out.add(isPakistan ? `looking for ${role} Pakistan email your cv` : `looking for ${role}${remote} email your cv`);
+    // Region-targeted + relocation/visa-sponsorship phrasings — ONLY when not country-scoped.
     if (wantsRelo) {
       for (const loc of prefLocs) {
         out.add(`hiring ${role} ${loc}`);
@@ -55,12 +58,19 @@ export function buildListingQueries({ limit = 18 } = {}) {
   const p = getProfile();
   const roles = (p.preferences?.roles || []).length ? p.preferences.roles : ['DevOps Engineer', 'Site Reliability Engineer', 'Cloud Engineer', 'Platform Engineer', 'Cloud Infrastructure Engineer', 'Cloud Solution Architect'];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
+  const scope = String(p.preferences?.locationScope || '').toLowerCase();
+  const isCountryScope = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
+  const isPakistan = isCountryScope && String(p.country || '').toLowerCase() === 'pakistan';
   const prefLocs = (p.preferences?.locations || []).slice(0, 6);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const wantsRelo = !isCountryScope && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
   const out = new Set();
   for (const r of roles) {
-    out.add(`${r}${remote}`);
-    if (wantsRelo) { for (const loc of prefLocs) out.add(`${r} ${loc}`); out.add(`${r} visa sponsorship`); }
+    // Country scope → bind listing queries to the country + key cities; never emit visa phrasings.
+    if (isPakistan) { out.add(`${r} Pakistan`); out.add(`${r} Karachi`); out.add(`${r} Lahore`); out.add(`${r} Islamabad`); }
+    else {
+      out.add(`${r}${remote}`);
+      if (wantsRelo) { for (const loc of prefLocs) out.add(`${r} ${loc}`); out.add(`${r} visa sponsorship`); }
+    }
   }
   return [...out].slice(0, limit);
 }

@@ -70,7 +70,19 @@ export function score(text = '', title = '') {
     const glued = key.replace(/[^a-z0-9]+/g, '');
     return head.includes(key) || (glued.length > 3 && headGlued.includes(glued));
   });
-  const core = roleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head));
+  // `guessRole` often misses a clean title on free-form LinkedIn posts, which wrongly dropped real
+  // Pakistan AI/ML/Python/Backend jobs as "title not aligned". Rescue with a body-level signal
+  // (first 400 chars) so a clear Python/AI post counts as aligned even with no parsed title.
+  const headBody = (titleOnly ? titleOnly + ' ' : '') + t.slice(0, 400);
+  const headBodyGlued = headBody.replace(/[^a-z0-9]+/g, '');
+  const bodyRoleHit = (p.preferences?.roles || []).some(role => {
+    const key = String(role || '').toLowerCase().trim();
+    if (key.length < 3) return false;
+    const glued = key.replace(/[^a-z0-9]+/g, '');
+    return headBody.includes(key) || (glued.length > 3 && headBodyGlued.includes(glued));
+  });
+  const CORE_SKILL = /\b(python|fastapi|django|flask|langchain|langgraph|\brag\b|llm|gen ?ai|generative ai|agentic|machine learning|ml engineer|backend|back[- ]end|api)\b/i;
+  const core = roleHit || bodyRoleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head)) || (CORE_SKILL.test(headBody) && !OFF_STACK.test(head));
   const offStack = OFF_STACK.test(head) && !/\b(python|ai|ml|llm|fastapi|django)\b/.test(head);
   let hit = 0; for (const s of terms) if (t.includes(s)) hit++;
   const rel = Math.min(1, (core ? 0.45 : 0) + 0.55 * Math.min(1, hit / 6));
@@ -81,13 +93,23 @@ export function score(text = '', title = '') {
   // "visa sponsorship" / "relocation" / a preferred region (Middle East, EU, …) is a POSITIVE
   // signal, not a geo-lock to skip. Only treat geo as a hard skip when the role is locked to a
   // region the user is NOT targeting AND no relocation/sponsorship is offered.
+  // A country-scoped profile (Pakistan) is NOT "wants relocation" just because it lists local
+  // cities — relocation/visa phrasings must not rescue a foreign geo-lock for such a profile.
+  const scope = String(p.preferences?.locationScope || '').toLowerCase();
+  const countryScoped = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
   const prefLocs = (p.preferences?.locations || []).map(s => String(s).toLowerCase());
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const wantsRelo = !countryScoped && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
   const head2500 = text.slice(0, 2500).toLowerCase();
   const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
   const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
+  // Onsite/hybrid in the home country (Karachi onsite) is desirable, NOT a geo-lock. Exempt a
+  // home-country role from the geo skip unless it carries a genuine foreign lock (US-only, etc).
+  const homeCountry = String(p.country || '').toLowerCase();
+  const homeCities = homeCountry === 'pakistan' ? /\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot)\b/i : null;
+  const inHomeCountry = !!homeCountry && (head2500.includes(homeCountry) || (homeCities && homeCities.test(head2500)));
+  const foreignGeoLock = /\b(us|u\.s\.|usa|united states|uk|u\.k\.|eu|europe|canada|india|germany|australia)[- ]?(only|based only|residents? only|citizens? only)\b|\bus citizen|security clearance|\bh1b\b|\bno[- ]?sponsorship\b|\bgreen card\b/i.test(head2500);
   const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
-  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion));
+  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion)) && !(inHomeCountry && !foreignGeoLock);
   const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geo ? 'location-restricted / authorization' : '';
   return { rel: +rel.toFixed(2), skip: !!why, why };
 }
@@ -192,10 +214,15 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const postUrl = r.urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.urn}/` : '';
       console.error(`[scrape] liPosts: post "${(role || query).slice(0, 40)}" — permalink ${postUrl ? `found (urn:li:activity:${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
+      // LinkedIn SDUI posts carry no structured location, so stamp one from the body when a PK
+      // city / "Pakistan" appears — lets the Pakistan location gate take the explicit-location
+      // pass instead of the strict blank-location branch (otherwise real Karachi posts drop).
+      const geoHit = (text.match(/\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot|pakistan)\b/i) || [])[0];
+      const location = geoHit ? (geoHit.toLowerCase() === 'pakistan' ? 'Pakistan' : `${geoHit[0].toUpperCase()}${geoHit.slice(1)}, Pakistan`) : '';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName, location,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });
