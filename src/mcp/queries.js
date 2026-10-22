@@ -20,14 +20,18 @@ export function buildQueries({ limit = 30 } = {}) {
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
 
   // Country-scoped: append location terms so LinkedIn content search surfaces local hiring posts.
-  const isCountryScope = p.preferences?.locationScope === 'country';
+  // Scope may be the literal 'country' or a country name ('pakistan'); honor both.
+  const scope = String(p.preferences?.locationScope || '').toLowerCase();
+  const isCountryScope = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
   const isPakistan = isCountryScope && String(p.country || '').toLowerCase() === 'pakistan';
-  const locationVariants = isPakistan ? [' Pakistan', ' Karachi', ' Lahore', ''] : [''];
+  const locationVariants = isPakistan ? [' Pakistan', ' Karachi', ' Lahore', ' Islamabad'] : [''];
 
   // Preferred relocation regions (Middle East, EU, …) from the profile — when the user is open to
   // relocation, actively surface regional + visa-sponsorship/relocation hiring, not just remote.
+  // BUT a country-scoped profile (Pakistan only) must NOT emit relocation/visa phrasings — those
+  // surface foreign roles the location gate then has to discard. Suppress them under country scope.
   const prefLocs = (p.preferences?.locations || []).slice(0, 8);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const wantsRelo = !isCountryScope && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
 
   const out = new Set();
   for (const role of roles) {
@@ -55,12 +59,20 @@ export function buildListingQueries({ limit = 18 } = {}) {
   const p = getProfile();
   const roles = (p.preferences?.roles || []).length ? p.preferences.roles : ['DevOps Engineer', 'Site Reliability Engineer', 'Cloud Engineer', 'Platform Engineer', 'Cloud Infrastructure Engineer', 'Cloud Solution Architect'];
   const remote = p.preferences?.remoteOnly ? ' remote' : '';
+  const scope = String(p.preferences?.locationScope || '').toLowerCase();
+  const isCountryScope = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
+  const isPakistan = isCountryScope && String(p.country || '').toLowerCase() === 'pakistan';
   const prefLocs = (p.preferences?.locations || []).slice(0, 6);
-  const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+  const wantsRelo = !isCountryScope && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
   const out = new Set();
   for (const r of roles) {
-    out.add(`${r}${remote}`);
-    if (wantsRelo) { for (const loc of prefLocs) out.add(`${r} ${loc}`); out.add(`${r} visa sponsorship`); }
+    // Country scope → bind listing queries to the country (and key cities) so LinkedIn returns
+    // local roles; never emit visa-sponsorship/relocation phrasings that pull foreign listings.
+    if (isPakistan) { out.add(`${r} Pakistan`); out.add(`${r} Karachi`); out.add(`${r} Lahore`); out.add(`${r} Islamabad`); }
+    else {
+      out.add(`${r}${remote}`);
+      if (wantsRelo) { for (const loc of prefLocs) out.add(`${r} ${loc}`); out.add(`${r} visa sponsorship`); }
+    }
   }
   return [...out].slice(0, limit);
 }

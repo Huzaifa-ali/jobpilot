@@ -232,7 +232,12 @@ const GEO_LOCK_ACTION = /\b(us|u\.s\.|usa|united states|uk|u\.k\.|united kingdom
 
 function locationAllowed(job) {
   const profile = getProfile();
-  if (profile.preferences?.locationScope !== 'country') return true;
+  // Country scope is signalled either by the literal 'country' or by a country name
+  // (e.g. 'pakistan') in locationScope. The gate previously only matched 'country', so a
+  // 'pakistan' scope silently disabled the filter and let non-PK roles reach outreach.
+  const scope = String(profile.preferences?.locationScope || '').toLowerCase();
+  const countryScoped = scope === 'country' || scope === 'pakistan' || scope === String(profile.country || '').toLowerCase();
+  if (!countryScoped) return true;
 
   const location = String(job.location || '').toLowerCase();
   const source   = String(job.source   || '').toLowerCase();
