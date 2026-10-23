@@ -574,6 +574,42 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
     await SLEEP(800);
     n = await fillAll(page, unknown, job); // second pass: conditional fields that appeared
 
+    // Multi-page Google Forms: these paginate ("Page 1 of N") with a "Next" control and show
+    // "Submit" only on the final page. Filling page 1 and looking for Submit used to fail with
+    // "no submit button" (e.g. a 6-page MindVista application form). Walk the pages: on each page
+    // with a Next (and no Submit), fill it, record any unknown required answers, click Next, and
+    // continue until Submit appears or a page budget is exhausted.
+    if (/docs\.google\.com\/forms|forms\.gle/i.test(hostOf(page.url()) + page.url())) {
+      const gformMissing = [];
+      const pageMarker = () => page.evaluate(() => (document.body.innerText.match(/Page \d+ of \d+/) || [''])[0]).catch(() => '');
+      for (let pageNo = 0; pageNo < 12; pageNo++) {
+        const nav = await page.evaluate(() => {
+          const btns = [...document.querySelectorAll('div[role="button"]')];
+          const txt = b => (b.innerText || '').trim();
+          return { hasSubmit: !!btns.find(b => /^submit$/i.test(txt(b))), hasNext: !!btns.find(b => /^(next|continue)$/i.test(txt(b))) };
+        }).catch(() => ({ hasSubmit: false, hasNext: false }));
+        if (nav.hasSubmit || !nav.hasNext) break; // final page reached (or no pagination)
+        // fill this page, then collect still-missing required before advancing
+        await fillAll(page, unknown, job);
+        const pm = (await page.evaluate(SCAN)).filter(f => f.required && f.type !== 'file' && f.type !== 'checkbox' && (f.type === 'radio' ? false : !String(f.val || '').trim())).map(f => f.q).filter(Boolean);
+        pm.forEach(q => { if (!gformMissing.includes(q)) gformMissing.push(q); });
+        const before = await pageMarker();
+        // Click the Next div directly in the DOM (Google Forms' div[role=button] often ignores a
+        // synthetic locator click); fall back to the role locator.
+        const clicked = await page.evaluate(() => {
+          const b = [...document.querySelectorAll('div[role="button"]')].find(x => /^(next|continue)$/i.test((x.innerText || '').trim()));
+          if (b) { b.click(); return true; } return false;
+        }).catch(() => false);
+        if (!clicked) { await page.getByRole('button', { name: /^(next|continue)$/i }).first().click().catch(() => {}); }
+        await SLEEP(1600);
+        // If a required field blocked advancing, the page marker is unchanged → stop to avoid looping.
+        const after = await pageMarker();
+        if (before && after && before === after) break;
+        await fillAll(page, unknown, job); // fill the freshly shown page
+      }
+      if (gformMissing.length) { gformMissing.forEach(q => askLater(q)); return { ok: false, result: 'needs_manual', detail: 'unknown required (multi-page form): ' + gformMissing.slice(0, 4).join(' | ').slice(0, 300), questions: gformMissing, finalUrl }; }
+    }
+
     // recompute unknown required: only those still empty
     const still = (await page.evaluate(SCAN)).filter(f => f.required && f.type !== 'file' && f.type !== 'checkbox' && (f.type === 'radio' ? false : !String(f.val || '').trim()));
     if (process.env.DEBUG_FORMS) console.log('STILL', JSON.stringify(still, null, 1));
