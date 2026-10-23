@@ -626,6 +626,16 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
       await SLEEP(1000);
       const t = await page.evaluate(() => document.body.innerText).catch(() => '');
       if (CONFIRM_RE.test(t) || /\/(thanks|thank-you|confirmation|success)/i.test(page.url())) return { ok: true, result: 'submitted', detail: 'confirmation page shown', finalUrl };
+      // Ashby (jobs.ashbyhq.com) is a React SPA: the URL stays on /application and the success
+      // state renders as a dedicated container/heading rather than a navigation or body-text match
+      // CONFIRM_RE always catches in time (encounter #9, "submitted but no confirmation"). Detect
+      // Ashby's own success node directly.
+      if (/ashbyhq\.com/.test(hostOf(page.url())) && await page.evaluate(() => {
+        const vis = el => !!el && el.offsetParent !== null;
+        if (vis(document.querySelector('[class*="ashby-application-form-success"], [class*="_success"], [class*="submitted" i]'))) return true;
+        return [...document.querySelectorAll('h1,h2,h3,p,div')].some(el =>
+          vis(el) && /application (has been )?(submitted|received)|thank(s| you) for applying|submission (received|complete)/i.test(el.textContent || ''));
+      }).catch(() => false)) return { ok: true, result: 'submitted', detail: 'ashby — success state detected', finalUrl };
       // Jobicy-specific confirmation: dashboard/my-applications tab visible, URL changed to profile/dashboard,
       // or jobicy appends ?registered=<email> to the job URL after a successful application.
       if (isJobicy && (
