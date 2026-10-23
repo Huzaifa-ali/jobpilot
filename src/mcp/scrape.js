@@ -177,10 +177,15 @@ export async function scrapeLinkedInPosts(query, { max = 25, timeoutMs = 35000 }
   });
 
   try {
+    // LinkedIn content-search is a heavy SDUI page that frequently does not reach
+    // 'domcontentloaded' within the budget (the nav times out and the scrape returns 0 posts).
+    // Wait only for 'commit' (navigation accepted) then give the client-rendered results time to
+    // hydrate — div[componentkey] posts appear a few seconds after commit, not at DCL.
     await page.goto(
       `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&sortBy=%22date_posted%22`,
-      { waitUntil: 'domcontentloaded', timeout: timeoutMs }
-    );
+      { waitUntil: 'commit', timeout: timeoutMs }
+    ).catch(() => {});
+    await SLEEP(6000);
     const body = await page.evaluate(() => document.body?.innerText?.slice(0, 200) || '').catch(() => '');
     if (/^sign in|join now to/i.test(body)) {
       await page.close().catch(() => {});
