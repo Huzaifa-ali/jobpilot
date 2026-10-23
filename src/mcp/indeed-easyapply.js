@@ -61,7 +61,10 @@ let _capHits = 0;                // # of times cooldown reached the 60-min cap (
 let _encounterLoggedThisCooldown = false; // ensures ONE encounter() per cooldown period, not per skip
 const SUBMIT_RE = /submit (your )?application|^submit$/i;
 const APPLY_NOW_RE = /^apply now$/i;
-const CONTINUE_RE = /^(continue|next|review)$/i;
+// Indeed's SmartApply "continue" control is not always a bare "Continue" — on the
+// resume-selection-module and some question modules it reads "Continue applying",
+// "Save and continue", or "Continue to next". Match those variants, not just the bare word.
+const CONTINUE_RE = /^(continue|next|save and continue|continue applying|continue to (the )?next.*)$/i;
 const SUCCESS_URL_RE = /\/form\/post-apply/i;
 const SUCCESS_BODY_RE = /application has been submitted/i;
 const SMARTAPPLY_HOST = 'smartapply.indeed.com';
@@ -288,11 +291,18 @@ async function fillSmartApply(popup, { job, ctx }) {
 
     await SLEEP(600);
 
-    // Advance: Continue / Next / Review.
+    // Advance: Continue / Next / Review. Prefer a text match, then fall back to the
+    // SmartApply footer continue button by its stable test id (text matching misses it when
+    // the label is icon-only or wrapped — the root cause of the "no continue/submit on
+    // resume module" encounter).
     const cont = popup.locator('button, a, span').filter({ hasText: CONTINUE_RE }).first();
     const review = popup.locator('button, a, span').filter({ hasText: /review (your )?application|^review$/i }).first();
+    const footerCont = popup.locator(
+      '[data-testid="continue-button"], [data-testid="ia-continueButton"], button[data-testid*="continue" i], button[type="submit"]'
+    ).first();
     const advance = (await review.isVisible().catch(() => false)) ? review
-      : (await cont.isVisible().catch(() => false)) ? cont : null;
+      : (await cont.isVisible().catch(() => false)) ? cont
+      : (await footerCont.isVisible().catch(() => false)) ? footerCont : null;
     if (!advance) {
       // No visible way forward and no review module → record it so it can be fixed in code.
       await encounter('indeed_easy', `no continue/submit on ${scan.moduleKind} module`, { url: popup.url(), page: popup });
