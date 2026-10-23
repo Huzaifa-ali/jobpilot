@@ -561,6 +561,18 @@ export async function applyForm({ url, timeoutMs = 120000, submit = true, job = 
     }
 
     if (/linkedin\.com\/(login|authwall)/.test(page.url())) { await encounter('form', 'redirected to linkedin login/authwall', { url: page.url(), page }); return { ok: false, result: 'needs_manual', detail: 'redirected to ' + page.url().slice(0, 80), finalUrl }; }
+    // A lnkd.in shortlink often resolves to a LinkedIn job page itself (not an external ATS).
+    // That has no fillable external form, so the form driver used to log a misleading "no
+    // application form found on lnkd.in"/linkedin.com (encounter #11). Instead, hand it back as
+    // an Easy Apply candidate so the caller routes it to apply_linkedin_easy.
+    {
+      const m = page.url().match(/linkedin\.com\/jobs\/view\/(\d+)/);
+      if (m) {
+        const easyUrl = `https://www.linkedin.com/jobs/view/${m[1]}/`;
+        flog('form link resolved to a LinkedIn job page → route to Easy Apply', easyUrl);
+        return { ok: false, result: 'use_easy_apply', detail: 'resolved to LinkedIn job page; apply via Easy Apply', easyApplyUrl: easyUrl, finalUrl };
+      }
+    }
     if (/workday|myworkdayjobs|icims|taleo|successfactors|oraclecloud|brassring/.test(finalUrl)) return { ok: false, result: 'needs_manual', detail: 'account-gated ATS (Workday/iCIMS/Taleo) — one-click for you', finalUrl };
 
     let n = await fillAll(page, unknown, job);

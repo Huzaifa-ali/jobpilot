@@ -545,13 +545,21 @@ async function applier() {
       } else {
         const target = j.apply_url || j.url;
         beat('applier', `📋 ${j.role} @ ${j.company}`);
-        const r = await applyForm({ url: target, submit: true, job: { ...j, role: j.role, company: j.company, description: j.description } });
-        if (r.result === 'submitted') setStatus(j.url, 'applied', 'form submitted');
-        else if (r.result === 'needs_manual') {
+        let r = await applyForm({ url: target, submit: true, job: { ...j, role: j.role, company: j.company, description: j.description } });
+        // A form link that resolved to a LinkedIn job page is an Easy Apply candidate, not a
+        // dead "no form" — route it through Easy Apply instead of skipping (encounter #11 fix).
+        if (r.result === 'use_easy_apply' && r.easyApplyUrl) {
+          beat('applier', `⚡ (via form→easy) ${j.role} @ ${j.company}`);
+          const er = await easyApply({ url: r.easyApplyUrl, job: { ...j, role: j.role, company: j.company, description: j.description } });
+          r = { ...er, finalUrl: r.easyApplyUrl };
+          if (er.result === 'applied') appliedEasy = true;
+        }
+        if (r.result === 'submitted' || r.result === 'applied' || r.result === 'already_applied') setStatus(j.url, 'applied', r.detail || 'form submitted');
+        else if (r.result === 'needs_manual' || r.result === 'needs_answers') {
           if (requiresWorkAuthorization(r)) setStatus(j.url, 'skipped', 'skipped: work authorization/citizenship requirement');
           else setStatus(j.url, 'needs_manual', r.detail);
         }
-        else if (r.result === 'no_form') setStatus(j.url, 'skipped', 'no form');
+        else if (r.result === 'no_form' || r.result === 'no_easy_apply') setStatus(j.url, 'skipped', r.result === 'no_easy_apply' ? 'no easy apply' : 'no form');
         else if ((j.attempts || 0) + 1 >= 3) setStatus(j.url, 'failed', r.detail);
         if (r.finalUrl) setFields(j.url, { apply_url: r.finalUrl });
         outcome('form_domain', domainOf(r.finalUrl || target), { win: r.result === 'submitted' });
