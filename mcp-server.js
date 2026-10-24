@@ -495,7 +495,7 @@ const TOOLS = [
         : source === 'reddit' ? await redditHiring()
         : source === 'boards' ? await publicBoards()
         : { ok: false, leads: [], detail: 'unknown source' };
-      return { ...r, count: (r.leads || []).length };
+      return ok({ ...r, count: (r.leads || []).length });
     }),
   },
 
