@@ -94,7 +94,7 @@ async function tailoredConsent(on){
       body: JSON.stringify({ allowTailoredCv: on })
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    location.hash = '#tab-cv'; location.reload();
+    location.replace(location.pathname + location.search);
   } catch(e) { alert('Could not update tailored CV approval: ' + e.message); }
 }
 

@@ -58,6 +58,18 @@ export function renderConsentBar(autoContribute) {
 }
 
 /**
+ * Tailored-CV approval at the top of the dashboard, beside the other start toggles.
+ * Drafts only reorder facts already in the profile. The CV report shows status only.
+ * @param {boolean} allowTailoredCv
+ * @returns {string} HTML
+ */
+export function renderTailoredCvBar(allowTailoredCv) {
+  return allowTailoredCv
+    ? `<div class="consentbar" id="tailored-cv-bar">📄 <b>Tailored CV: ON.</b> Drafts may reorder facts already in your profile. The canonical CV stays the source of truth. <button class="cbtn off" onclick="tailoredConsent(false)">Disable tailored uploads</button></div>`
+    : `<div class="consentbar" id="tailored-cv-bar">📄 <b>Tailored CV: OFF.</b> Applications use your canonical CV until you approve drafts here. <button class="cbtn on" onclick="tailoredConsent(true)">Approve tailored CV drafts</button></div>`;
+}
+
+/**
  * Render the brain-driver STATUS bar. Brain control is ALWAYS-ON (not consent-gated) — this is a
  * status indicator, not a toggle. It shows whether installed coding-agent CLIs are driving the
  * pipeline, and what the brain is doing right now.

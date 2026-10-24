@@ -26,6 +26,7 @@ import {
   renderLoginBanners,
   renderBoardLoginCard,
   renderConsentBar,
+  renderTailoredCvBar,
   renderBrainLoopBar,
   renderQuestionsBanner,
 } from './partials/header.js';
@@ -156,6 +157,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
   ${renderLoginBanners(state.loginNeeded)}
   ${renderBoardLoginCard(live)}
   ${renderConsentBar(p.consent?.autoContribute !== false)}
+  ${renderTailoredCvBar(p.preferences?.allowTailoredCv === true)}
   ${renderBrainLoopBar(brainState, installedBrains)}
   ${renderQuestionsBanner(pend.length)}
 
