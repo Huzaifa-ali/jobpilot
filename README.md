@@ -7,9 +7,9 @@
 Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
 the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
 
-**Stable release: [v3.2.0](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0).** Indeed Apply now works in the normal signed-in window.
+**Stable release: [v3.3.0](https://github.com/maazbin/jobpilot/releases/tag/v3.3.0).** Country-locked and on-site roles are skipped unless the post offers visa sponsorship or relocation.
 
-[![Stable](https://img.shields.io/badge/release-v3.2.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0)
+[![Stable](https://img.shields.io/badge/release-v3.3.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.3.0)
 [![MIT License](https://img.shields.io/badge/license-MIT-14532d.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-2563eb.svg)](https://modelcontextprotocol.io)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-166534.svg)](https://nodejs.org)
@@ -146,7 +146,11 @@ This is the line we will keep. New work happens after this tag.
 
 ---
 
-## Since v3.2.0
+## v3.3.0
+
+A lead stays when the role is remote and not limited to a country list. Timezone overlap is enough. An on-site or hybrid role stays only when the post offers visa sponsorship or relocation in a place on the profile. The dashboard switch for this is on unless the profile turns it off.
+
+Debug Chrome starts with Memory Saver and occluded-window throttling off, so a discarded tab does not stall the CDP handshake. A fresh clone finishes onboarding before any search. The dashboard mix sets how a cycle splits across sources and across email, posts, connect, DM, Easy Apply, and forms. An application letter includes the JobPilot repository URL only when that profile saved the link.
 
 Indeed **Apply now** works in the normal signed-in window, with the debug port closed. Three in-site applications reached the page that says the application was submitted. The jobs home is `https://pk.indeed.com/`. A `from=` tracking parameter is not part of that page. Typing `viewjob?jk=` into the address bar stops on Additional Verification. Leave that page. Do not click the check. Glassdoor job pages load after Google sign-in, and in-site Apply now there has still not been submitted. Issue [#1](https://github.com/maazbin/jobpilot/issues/1) is closed. Issue [#2](https://github.com/maazbin/jobpilot/issues/2) stays open for a driven Glassdoor browser.
 
