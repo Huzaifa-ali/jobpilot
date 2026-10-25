@@ -11,3 +11,4 @@ A new page adds a `node` and a `branch` from the node you were on. A wrong hop c
 - [Glassdoor](glassdoor/path.md) — `login` through Google, then `salaries` to `jobs`. Easy Apply is `refused`. The employer site is `company_site`.
 - [LinkedIn](linkedin/path.md) — `feed` to `posts`. A security check on `job` is `stop`.
 - [Greenhouse](greenhouse/path.md) — follow `embed`. `careers` and `public_job` are `stop`. An empty city field is `stop`.
+- [WUR](wur/path.md) — vacancy page form. Click the privacy box, then upload the CV and letter. Success is `ub-form-submitted`.
