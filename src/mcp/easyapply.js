@@ -668,6 +668,11 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
       const recheck = await analyzePage(dlg, ctx).catch(() => null);
       if (recheck && recheck.blocking.length) { await fillPage(page, dlg, ctx, job); await SLEEP(400); }
       const submit = dlg.getByRole('button', { name: /submit application/i }).first();
+      // The dialog footer can sit below the fold; isVisible() requires the element to be in the
+      // viewport, so an off-screen Submit/Review button read as "not visible" and the whole apply
+      // stalled with "all fields resolved but page would not advance". Scroll the footer action
+      // into view before the visibility check so a present-but-off-screen button is still used.
+      await submit.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (await submit.isVisible().catch(() => false)) {
         if (dryRun) { await discard(page); await page.close(); return { ok: true, result: 'dry_run_ready', detail: `reached submit at step ${step}`, meta }; }
         await submit.click();
@@ -679,8 +684,10 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
         return { ok, result: ok ? 'applied' : 'stuck', detail: ok ? `submitted + verified (${step + 1} pages)` : 'submit not confirmed', meta, used: ctx.used };
       }
       const next = dlg.getByRole('button', { name: /continue to next step|review your application|^next$|^review$/i }).first();
+      await next.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (!(await next.isVisible().catch(() => false))) { await encounter('easy_apply', 'no next/submit button', { url, page, scope: dlg }); break; }
-      await next.click().catch(() => {});
+      // scrollIntoViewIfNeeded + an explicit scroll settle so the click lands on the real button
+      await next.click({ timeout: 4000 }).catch(() => {});
       await SLEEP(1600);
       const st = await dlg.evaluate(SCAN).catch(() => ({ progress: '', errors: [] }));
       if (st.progress === lastProgress && st.progress) {
@@ -791,8 +798,10 @@ export async function inspectEasyApply({ url, timeoutMs = 120000 }) {
       }
       pages.push({ step, heading: scan.heading, fields: logical });
       const submit = dlg.getByRole('button', { name: /submit application/i }).first();
+      await submit.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (await submit.isVisible().catch(() => false)) break;
       const next = dlg.getByRole('button', { name: /continue to next step|review your application|^next$|^review$/i }).first();
+      await next.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (!(await next.isVisible().catch(() => false))) break;
       await next.click().catch(() => {});
       await SLEEP(1500);
@@ -823,6 +832,7 @@ export async function applyEasyApplyWithAnswers({ url, answers = {}, timeoutMs =
       await fillPage(page, dlg, ctx, job);
       await SLEEP(500);
       const submit = dlg.getByRole('button', { name: /submit application/i }).first();
+      await submit.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (await submit.isVisible().catch(() => false)) {
         if (dryRun) { await discard(page); await page.close(); return { ok: true, result: 'dry_run_ready', detail: `reached submit at step ${step}` }; }
         await submit.click(); await SLEEP(3500);
@@ -832,8 +842,9 @@ export async function applyEasyApplyWithAnswers({ url, answers = {}, timeoutMs =
         return { ok: okv, result: okv ? 'applied' : 'stuck', detail: okv ? `submitted + verified (${step + 1} pages)` : 'submit not confirmed', used: ctx.used };
       }
       const next = dlg.getByRole('button', { name: /continue to next step|review your application|^next$|^review$/i }).first();
+      await next.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (!(await next.isVisible().catch(() => false))) break;
-      await next.click().catch(() => {});
+      await next.click({ timeout: 4000 }).catch(() => {});
       await SLEEP(1600);
       const st = await dlg.evaluate(SCAN).catch(() => ({ progress: '' }));
       if (st.progress && st.progress === lastProgress) { if (++same >= 2) { const a = await analyzePage(dlg, ctx).catch(() => null); const blk = a ? a.blocking.map(b => `${b.q} (${b.reason})`).join(' | ') : ''; await discard(page); await page.close(); return { ok: false, result: 'stuck', detail: 'could not advance — ' + (blk || 'validation'), blocking: a?.blocking || [] }; } } else same = 0;
