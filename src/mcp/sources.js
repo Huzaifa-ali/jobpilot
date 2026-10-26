@@ -210,6 +210,16 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       console.error('[scrape] liPosts: hit login/authwall — session not logged in (landed on ' + page.url().slice(0, 80) + ')');
       return { ok: false, leads: [], detail: 'LinkedIn not logged in (authwall) — log into LinkedIn in the debug Chrome window' };
     }
+    // LinkedIn's search SDUI hydrates asynchronously — a single fixed sleep is sometimes too
+    // short on a cold session, so the DOM snapshot caught 0 containers ("0 posts"). Poll for the
+    // post containers (up to ~18s) before scraping, so a warm-up delay no longer yields an empty
+    // result. The containers carry a componentkey that includes "FeedType".
+    try {
+      await page.waitForFunction(
+        () => document.querySelectorAll('div[componentkey*="FeedType"]').length > 0,
+        { timeout: 18000 }
+      );
+    } catch { /* genuinely no results for this query/window — fall through, raw will be [] */ }
     for (let i = 0; i < maxScroll; i++) { await page.mouse.wheel(0, 2500); await SLEEP(900); }
     // expand truncated posts so hidden emails become visible
     await page.evaluate(() => [...document.querySelectorAll('button, span[role=button]')].filter(b => /^…?\s*more$|see more/i.test(b.innerText.trim())).forEach(b => b.click())).catch(() => {});
