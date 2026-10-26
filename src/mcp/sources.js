@@ -135,7 +135,7 @@ export function score(text = '', title = '', profile) {
   let hit = 0; for (const s of terms) if (t.includes(s)) hit++;
   const rel = Math.min(1, (core ? 0.45 : 0) + 0.55 * Math.min(1, hit / 6));
   // Junior check: title + first 120 chars of body only — not the full description.
-  const tooJunior = /\b(freshers?|0\s*[-–]\s*[12]\s*(years|yrs)|entry[- ]level|internship|interns?\b|trainee|graduate program)\b/.test(titleOnly + ' ' + t.slice(0, 120));
+  const tooJunior = /\b(freshers?|0\s*[-–]\s*[12]\s*(years|yrs)|entry[- ]level|internship|interns?\b|trainee|graduate program|new[- ]?grads?)\b/.test(titleOnly + ' ' + t.slice(0, 120));
   const equityOnly = /\b(co-?founder|cofondat|equity[- ]only|unpaid|sweat equity|no salary)\b/.test(t.slice(0, 700));
   // Relocation / visa-sponsorship preference: if the user is open to relocating (profile), then
   // "visa sponsorship" / "relocation" / a preferred region (Middle East, EU, …) is a POSITIVE
@@ -285,6 +285,79 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
     console.error('[scrape] liPosts: error:', e.message);
     return { ok: false, leads: [], detail: e.message.slice(0, 200) };
   } finally { await page.close().catch(() => {}); }
+}
+
+// ── X hiring posts (signed-in search, latest) ────────────────────────────────
+// Reads the live search. A login wall is not a result. Email in the post is the
+// email channel; otherwise the author handle is a message on X.
+export async function xPosts(query, { max = 12 } = {}) {
+  console.error('[scrape] xPosts: starting, query=' + query);
+  let ctx, page;
+  try { ctx = await getContext(); } catch (e) {
+    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
+  }
+  try {
+    page = await ctx.newPage();
+    page.setDefaultTimeout(35000);
+    const q = encodeURIComponent(query);
+    await page.goto(`https://x.com/search?q=${q}&src=typed_query&f=live`, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await page.waitForTimeout(3500);
+    const landed = page.url();
+    if (/\/i\/flow\/login|\/login/.test(landed)) {
+      return { ok: false, leads: [], detail: 'not logged in to X' };
+    }
+    const raw = await page.evaluate((limit) => {
+      const articles = [...document.querySelectorAll('article[data-testid="tweet"]')].slice(0, limit);
+      return articles.map(a => {
+        const text = a.querySelector('[data-testid="tweetText"]')?.innerText || '';
+        const name = a.querySelector('[data-testid="User-Name"]')?.innerText || '';
+        const link = a.querySelector('a[href*="/status/"]');
+        const time = a.querySelector('time')?.getAttribute('datetime') || '';
+        const handle = (name.match(/@\w+/) || [''])[0];
+        const display = name.split('\n').map(s => s.trim()).find(s => s && !s.startsWith('@')) || '';
+        return { text, display, handle, url: link ? link.href.split('?')[0] : '', time };
+      }).filter(r => r.text);
+    }, max);
+    const leads = [];
+    let notHiring = 0, skipped = 0;
+    for (const r of raw) {
+      const hiring = /hiring|looking for|we.?re seeking|open (role|position)|join (our|the) team|send (your )?(cv|resume)|apply|vacanc|opening/i.test(r.text);
+      if (!hiring) { notHiring++; continue; }
+      const emails = [...new Set(emailsIn(r.text))].filter(e => !isBadEmail(e));
+      const labeled = r.text.match(/role:\s*([^\n|]{3,80})/i);
+      const role = (labeled ? labeled[1] : guessRole(r.text) || '').replace(/\s+/g, ' ').trim();
+      const s = score(r.text, role || r.text.slice(0, 80));
+      if (s.skip) skipped++;
+      const handle = (r.handle || '').replace(/^@/, '');
+      leads.push({
+        source: 'x_post',
+        company: guessCompany(r.text) || r.display || handle,
+        role: role || 'Software Engineer',
+        url: r.url || (handle ? `https://x.com/${handle}` : `x:${emails[0] || r.text.slice(0, 40)}`),
+        email: emails[0] || '',
+        emails,
+        applyUrl: '',
+        postUrl: r.url,
+        posterUrl: handle ? `https://x.com/${handle}` : '',
+        posterName: r.display || handle,
+        postedAt: r.time || new Date().toISOString(),
+        postedRaw: r.time,
+        description: r.text.slice(0, 2000),
+        channel: emails[0] ? 'email' : handle ? 'dm' : 'none',
+        portal: emails[0] ? 'email' : 'x',
+        relevance: s.rel,
+        skip: s.skip,
+        skipWhy: s.why,
+        remote: /remote/i.test(r.text),
+      });
+    }
+    const withEmail = leads.filter(l => l.email).length;
+    console.error(`[scrape] xPosts: ${raw.length} posts → ${leads.length} hiring (${notHiring} not hiring, ${skipped} skip, ${withEmail} email)`);
+    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${withEmail} with email)` };
+  } catch (e) {
+    console.error('[scrape] xPosts: error:', e.message);
+    return { ok: false, leads: [], detail: e.message.slice(0, 200) };
+  } finally { await page?.close().catch(() => {}); }
 }
 
 // ── LinkedIn job listings (freshest) ─────────────────────────────────────────
