@@ -7,9 +7,9 @@
 Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
 the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
 
-**Stable release: [v3.3.0](https://github.com/maazbin/jobpilot/releases/tag/v3.3.0).** Country-locked and on-site roles are skipped unless the post offers visa sponsorship or relocation.
+**Stable release: [v3.4.0](https://github.com/maazbin/jobpilot/releases/tag/v3.4.0).** The setup page and the dashboard test whether X, LinkedIn, and Gmail are actually signed in.
 
-[![Stable](https://img.shields.io/badge/release-v3.3.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.3.0)
+[![Stable](https://img.shields.io/badge/release-v3.4.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.4.0)
 [![MIT License](https://img.shields.io/badge/license-MIT-14532d.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-2563eb.svg)](https://modelcontextprotocol.io)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-166534.svg)](https://nodejs.org)
@@ -145,6 +145,12 @@ This is the line we will keep. New work happens after this tag.
 - Commits from the evolver are authored as the GitHub username, not a personal name or a personal email.
 
 ---
+
+## v3.4.0
+
+The setup page and the dashboard have **Test sign-in**. It opens X, LinkedIn, and Gmail in the debug Chrome and reports which of those sessions are signed in. An open tab whose address contains `x.com` is not treated as proof. The CV drop zone on the setup page keeps its script alive, and a click there opens the file dialog once.
+
+Search and outreach still wait until the profile form has a name, an email, a CV, a LinkedIn URL, target roles, and the sites you are signed into.
 
 ## v3.3.0
 
