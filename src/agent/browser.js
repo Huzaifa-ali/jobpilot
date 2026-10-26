@@ -137,9 +137,9 @@ export async function newPage(timeout = 30000) {
 
 // Verify a REAL logged-in session by navigating and reading auth signals —
 // not by checking whether a tab happens to be open (a fresh profile has none).
-// Returns { linkedin: bool, gmail: bool, detail: {...} }.
+// Returns { x: bool, linkedin: bool, gmail: bool, detail: {...} }.
 export async function verifyLogins() {
-  const out = { linkedin: false, gmail: false, detail: {} };
+  const out = { x: false, linkedin: false, gmail: false, detail: {} };
   let page;
   try {
     page = await newPage(35000);
@@ -147,6 +147,25 @@ export async function verifyLogins() {
     out.detail.error = e.message;
     return out;
   }
+  // X: the signed-in home has the composer and the account switcher.
+  // A login or signup URL, or a Sign in control, is logged out.
+  try {
+    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await page.waitForTimeout(2500);
+    const x = await page.evaluate(() => {
+      const path = location.pathname;
+      if (/\/i\/flow\/login|\/login|\/i\/flow\/signup/.test(path)) return { in: false, why: 'login url' };
+      const account = !!document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+      const composer = !!document.querySelector('[data-testid="SideNav_NewTweet_Button"]');
+      const homeTab = !!document.querySelector('[data-testid="AppTabBar_Home_Link"]');
+      const signIn = !!document.querySelector('[data-testid="loginButton"], a[href="/login"]');
+      const inn = (account || composer || homeTab) && !signIn;
+      return { in: inn, why: inn ? 'home nav present' : 'no auth signal' };
+    });
+    out.x = x.in;
+    out.detail.x = x.why;
+  } catch (e) { out.detail.x = 'error: ' + e.message; }
+
   // LinkedIn: authenticated feed shows the member nav (Home/Jobs/Messaging/Me)
   // and the member's own name. authwall/login URL = logged out.
   try {
