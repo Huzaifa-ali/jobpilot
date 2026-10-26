@@ -206,7 +206,14 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const cut = text.search(/\n\s*(Follow|Connect|Subscribe)\s*\n/);
       const bodyTxt = cut > 0 ? text.slice(cut).replace(/^\s*(Follow|Connect|Subscribe)\s*/, '') : text;
       const role = guessRole(bodyTxt);
-      const s = score(bodyTxt, role);
+      // Score against the SAME title that gets stored on the lead: when guessRole finds no clean
+      // title, the lead's role falls back to the cleaned search query (e.g. "AI Systems Engineer
+      // Karachi"). Previously score() ran on the empty guessRole result, so its title-alignment
+      // check saw no title and wrongly skipped real target-role posts as "title not aligned".
+      // Use the query-derived fallback as the scoring title so alignment matches what we store.
+      const queryTitle = query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim();
+      const scoreTitle = role || queryTitle;
+      const s = score(bodyTxt, scoreTitle);
       if (s.skip) skipped++;
       // postUrl = the FEED POST's own permalink (canonical /feed/update/urn:li:activity:<id>/).
       // Distinct from posterUrl (the author profile). comment_interested needs this URL to find
