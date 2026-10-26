@@ -95,6 +95,20 @@ export function renderBrainLoopBar(brain = {}, installed = []) {
  * @param {boolean} live - worker heartbeat is fresh
  * @returns {string} HTML
  */
+/**
+ * Card that asks the debug Chrome whether X, LinkedIn, and Gmail are signed in.
+ * The button calls testSessions(), which posts to /api/session-check.
+ * @returns {string} HTML
+ */
+export function renderSessionCheckCard() {
+  return `<div class="boardlogin" id="session-check">
+  <b>Test X, LinkedIn, and Gmail.</b>
+  <p class="dim">This opens each site in the debug Chrome and reads the signed-in page. An open x.com tab is not treated as proof.</p>
+  <button class="opt" type="button" onclick="testSessions()">Test sign-in</button>
+  <span id="sessionStatus" class="dim"></span>
+</div>`;
+}
+
 export function renderBoardLoginCard(live) {
   return `<div class="boardlogin" id="board-login">
   <b>Sign in to Glassdoor, then Indeed.</b>

@@ -25,6 +25,7 @@ import {
   renderHeader,
   renderLoginBanners,
   renderBoardLoginCard,
+  renderSessionCheckCard,
   renderConsentBar,
   renderTailoredCvBar,
   renderBrainLoopBar,
@@ -155,6 +156,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
 <div class="wrap">
 
   ${renderLoginBanners(state.loginNeeded)}
+  ${renderSessionCheckCard()}
   ${renderBoardLoginCard(live)}
   ${renderConsentBar(p.consent?.autoContribute !== false)}
   ${renderTailoredCvBar(p.preferences?.allowTailoredCv === true)}
