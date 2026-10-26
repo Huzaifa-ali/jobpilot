@@ -348,7 +348,10 @@ async function openBoardLogin(){
 <script>
 const $ = id => document.getElementById(id);
 const drop = $('drop'), cv = $('cv');
-drop.onclick = () => cv.click();
+// The file input lives inside the drop zone. A second click from the bubbling
+// synthetic event closes the dialog immediately, so stop it on the input.
+cv.addEventListener('click', e => e.stopPropagation());
+drop.addEventListener('click', () => cv.click());
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) uploadCV(e.dataTransfer.files[0]); };
@@ -367,7 +370,7 @@ $('save').onclick = async () => {
   $('answers').value.split('\\n').forEach(line => { const i = line.indexOf('='); if (i > 0) answers[line.slice(0, i).trim()] = line.slice(i + 1).trim(); });
   if ($('notice').value.trim()) answers['notice period'] = $('notice').value.trim();
   const parseMoney = raw => {
-    const m = raw.trim().match(/^([A-Za-z]{3})?\s*([\d,]+)(?:\s*(?:-|–|to)\s*([\d,]+))?\s*(?:\/\s*(month|year|hour))?$/i);
+    const m = raw.trim().match(/^([A-Za-z]{3})?\\s*([\\d,]+)(?:\\s*(?:-|–|to)\\s*([\\d,]+))?\\s*(?:\\/\\s*(month|year|hour))?$/i);
     if (!m) return null;
     const min = parseInt(m[2].replace(/,/g, ''), 10);
     const max = parseInt((m[3] || m[2]).replace(/,/g, ''), 10);
