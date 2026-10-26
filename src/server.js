@@ -9,7 +9,7 @@ import { getProfile, updateProfile, profileGaps } from './profile.js';
 import { cdpStatus, listTabs } from './agent/browser.js';
 import { writeDash } from './dashboard.js';
 import { openManualLoginWindow } from './mcp/chrome.js';
-import { renderBoardLoginCard } from './dashboard/partials/header.js';
+import { renderBoardLoginCard, renderSessionCheckCard } from './dashboard/partials/header.js';
 import { DASH, DATA } from './config.js';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -125,6 +125,15 @@ const server = http.createServer(async (req, res) => {
       const opened = await openManualLoginWindow();
       return json(res, opened.ok ? 200 : 409, opened);
     }
+    // ── POST /api/session-check → real sign-in probe for X, LinkedIn, and Gmail ─
+    if (req.method === 'POST' && url.pathname === '/api/session-check') {
+      const { verifyLogins } = await import('./agent/browser.js');
+      const v = await verifyLogins();
+      if (v.detail?.error && !v.x && !v.linkedin && !v.gmail) {
+        return json(res, 200, { ok: false, error: v.detail.error, x: false, linkedin: false, gmail: false });
+      }
+      return json(res, 200, { ok: true, x: !!v.x, linkedin: !!v.linkedin, gmail: !!v.gmail });
+    }
     // ── POST /api/consent → user opts in/out of auto-contribution (code/doc push) ──
     // NOTE: brain control is NOT consent-gated (it is always-on, core behavior). The only consent
     // here is autoContribute — whether code/doc fixes are pushed to GitHub.
@@ -218,8 +227,20 @@ input:focus,textarea:focus{outline:none;border-color:#6366f1}
 </style></head><body><div class="wrap">
 <h1>🤖 Job Agent — Setup</h1>
 <div class="sub">Upload your CV and paste your links. Everything stays on your machine.</div>
+${renderSessionCheckCard()}
 ${renderBoardLoginCard(false)}
 <script>
+async function testSessions(){
+  const el = document.getElementById('sessionStatus');
+  if (el) el.textContent = 'Testing X, LinkedIn, and Gmail…';
+  try {
+    const r = await fetch('/api/session-check', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'test failed');
+    const bit = (name, on) => name + (on ? ' signed in' : ' signed out');
+    if (el) el.textContent = [bit('X', j.x), bit('LinkedIn', j.linkedin), bit('Gmail', j.gmail)].join(' · ');
+  } catch (e) { if (el) el.textContent = e.message; }
+}
 async function openBoardLogin(){
   const el = document.getElementById('boardLoginStatus');
   if (el) el.textContent = 'Opening Glassdoor…';
