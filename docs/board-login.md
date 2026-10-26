@@ -33,4 +33,4 @@ Indeed **Apply now** (the in-site form) is completed in this normal window. On 2
 
 Glassdoor job pages load in the same window. The button seen there was **Apply on employer site**, which is the company-site path. Glassdoor Easy Apply is still refused. Issue #1 is closed: Indeed Apply now works in this window. Issue #2 stays open for Glassdoor while a browser is being driven on port 9222.
 
-Hop logs, one directory per site: `docs/paths/`.
+Decision trees, one directory per site: `docs/paths/`.

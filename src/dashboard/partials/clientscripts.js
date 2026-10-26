@@ -94,8 +94,21 @@ async function tailoredConsent(on){
       body: JSON.stringify({ allowTailoredCv: on })
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    location.hash = '#tab-cv'; location.reload();
+    location.replace(location.pathname + location.search);
   } catch(e) { alert('Could not update tailored CV approval: ' + e.message); }
+}
+
+// ── X, LinkedIn, and Gmail sign-in probe ─────────────────────────────────────
+async function testSessions(){
+  const el = document.getElementById('sessionStatus');
+  if (el) el.textContent = 'Testing X, LinkedIn, and Gmail…';
+  try {
+    const r = await fetch(apiBase() + '/api/session-check', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'test failed');
+    const bit = (name, on) => name + (on ? ' signed in' : ' signed out');
+    if (el) el.textContent = [bit('X', j.x), bit('LinkedIn', j.linkedin), bit('Gmail', j.gmail)].join(' · ');
+  } catch (e) { if (el) el.textContent = e.message; }
 }
 
 // ── Glassdoor, then Indeed, in a normal window ───────────────────────────────

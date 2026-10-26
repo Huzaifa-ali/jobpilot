@@ -9,7 +9,7 @@ import { getProfile, updateProfile, profileGaps } from './profile.js';
 import { cdpStatus, listTabs } from './agent/browser.js';
 import { writeDash } from './dashboard.js';
 import { openManualLoginWindow } from './mcp/chrome.js';
-import { renderBoardLoginCard } from './dashboard/partials/header.js';
+import { renderBoardLoginCard, renderSessionCheckCard } from './dashboard/partials/header.js';
 import { DASH, DATA } from './config.js';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -125,6 +125,15 @@ const server = http.createServer(async (req, res) => {
       const opened = await openManualLoginWindow();
       return json(res, opened.ok ? 200 : 409, opened);
     }
+    // ── POST /api/session-check → real sign-in probe for X, LinkedIn, and Gmail ─
+    if (req.method === 'POST' && url.pathname === '/api/session-check') {
+      const { verifyLogins } = await import('./agent/browser.js');
+      const v = await verifyLogins();
+      if (v.detail?.error && !v.x && !v.linkedin && !v.gmail) {
+        return json(res, 200, { ok: false, error: v.detail.error, x: false, linkedin: false, gmail: false });
+      }
+      return json(res, 200, { ok: true, x: !!v.x, linkedin: !!v.linkedin, gmail: !!v.gmail });
+    }
     // ── POST /api/consent → user opts in/out of auto-contribution (code/doc push) ──
     // NOTE: brain control is NOT consent-gated (it is always-on, core behavior). The only consent
     // here is autoContribute — whether code/doc fixes are pushed to GitHub.
@@ -218,8 +227,20 @@ input:focus,textarea:focus{outline:none;border-color:#6366f1}
 </style></head><body><div class="wrap">
 <h1>🤖 Job Agent — Setup</h1>
 <div class="sub">Upload your CV and paste your links. Everything stays on your machine.</div>
+${renderSessionCheckCard()}
 ${renderBoardLoginCard(false)}
 <script>
+async function testSessions(){
+  const el = document.getElementById('sessionStatus');
+  if (el) el.textContent = 'Testing X, LinkedIn, and Gmail…';
+  try {
+    const r = await fetch('/api/session-check', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'test failed');
+    const bit = (name, on) => name + (on ? ' signed in' : ' signed out');
+    if (el) el.textContent = [bit('X', j.x), bit('LinkedIn', j.linkedin), bit('Gmail', j.gmail)].join(' · ');
+  } catch (e) { if (el) el.textContent = e.message; }
+}
 async function openBoardLogin(){
   const el = document.getElementById('boardLoginStatus');
   if (el) el.textContent = 'Opening Glassdoor…';
@@ -309,19 +330,19 @@ async function openBoardLogin(){
   <h2>💰 The things the agent should never guess</h2>
   <div class="sub" style="margin:-6px 0 10px">So it can answer screening questions without pausing to ask you.</div>
   <div class="row">
-    <div><label>Current salary — amount</label><input type="text" id="currentSalAmount" value="${currentSalary.amount || ''}" placeholder="500000"></div>
-    <div><label>Current currency / period</label><input type="text" id="currentSalCur" value="${(currentSalary.currency || '') + (currentSalary.period ? ' / ' + currentSalary.period : '')}" placeholder="PKR / month"></div>
+    <div><label>Current salary — amount</label><input type="text" id="currentSalAmount" value="${currentSalary.amount || ''}" placeholder="5000"></div>
+    <div><label>Current currency / period</label><input type="text" id="currentSalCur" value="${(currentSalary.currency || '') + (currentSalary.period ? ' / ' + currentSalary.period : '')}" placeholder="USD / month"></div>
   </div>
   <div class="row">
-    <div><label>Default expected salary — amount</label><input type="text" id="salAmount" value="${p.salary?.amount || ''}" placeholder="600000"></div>
-    <div><label>Default currency / period</label><input type="text" id="salCur" value="${(p.salary?.currency || '') + (p.salary?.period ? ' / ' + p.salary.period : '')}" placeholder="PKR / month"></div>
+    <div><label>Default expected salary — amount</label><input type="text" id="salAmount" value="${p.salary?.amount || ''}" placeholder="7000"></div>
+    <div><label>Default currency / period</label><input type="text" id="salCur" value="${(p.salary?.currency || '') + (p.salary?.period ? ' / ' + p.salary.period : '')}" placeholder="USD / month"></div>
   </div>
   <label>Country-specific expectations (one per line)</label>
-  <textarea id="salaryExpectations" rows="3" placeholder="Pakistan = PKR 600000-800000 / month&#10;Worldwide = USD 5000 / month">${salaryExpectationText}</textarea>
+  <textarea id="salaryExpectations" rows="3" placeholder="Home country = USD 5000-7000 / month&#10;Worldwide = USD 5000 / month">${salaryExpectationText}</textarea>
   <div class="sub" style="margin:8px 0 0">The agent selects the matching country/currency; if a form only accepts one number, it uses the lower end of the range.</div>
   <div class="row">
     <div><label>Need visa sponsorship?</label><input type="text" id="sponsor" value="${p.workAuth?.needsSponsorship === true ? 'yes' : p.workAuth?.needsSponsorship === false ? 'no' : ''}" placeholder="no"></div>
-    <div><label>Authorized to work in</label><input type="text" id="authIn" value="${(p.workAuth?.authorizedIn || []).join(', ')}" placeholder="Pakistan"></div>
+    <div><label>Authorized to work in</label><input type="text" id="authIn" value="${(p.workAuth?.authorizedIn || []).join(', ')}" placeholder="Your country"></div>
   </div>
   <label>Notice period</label>
   <input type="text" id="notice" value="${(p.answers || {})['notice period'] || ''}" placeholder="2 weeks">
@@ -348,7 +369,10 @@ async function openBoardLogin(){
 <script>
 const $ = id => document.getElementById(id);
 const drop = $('drop'), cv = $('cv');
-drop.onclick = () => cv.click();
+// The file input lives inside the drop zone. A second click from the bubbling
+// synthetic event closes the dialog immediately, so stop it on the input.
+cv.addEventListener('click', e => e.stopPropagation());
+drop.addEventListener('click', () => cv.click());
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) uploadCV(e.dataTransfer.files[0]); };
@@ -367,7 +391,7 @@ $('save').onclick = async () => {
   $('answers').value.split('\\n').forEach(line => { const i = line.indexOf('='); if (i > 0) answers[line.slice(0, i).trim()] = line.slice(i + 1).trim(); });
   if ($('notice').value.trim()) answers['notice period'] = $('notice').value.trim();
   const parseMoney = raw => {
-    const m = raw.trim().match(/^([A-Za-z]{3})?\s*([\d,]+)(?:\s*(?:-|–|to)\s*([\d,]+))?\s*(?:\/\s*(month|year|hour))?$/i);
+    const m = raw.trim().match(/^([A-Za-z]{3})?\\s*([\\d,]+)(?:\\s*(?:-|–|to)\\s*([\\d,]+))?\\s*(?:\\/\\s*(month|year|hour))?$/i);
     if (!m) return null;
     const min = parseInt(m[2].replace(/,/g, ''), 10);
     const max = parseInt((m[3] || m[2]).replace(/,/g, ''), 10);

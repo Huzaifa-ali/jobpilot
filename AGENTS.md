@@ -61,23 +61,37 @@ That is the entire per-brain step. Once wired, the brain reads this file and is 
 
 ## Path traces — required for every brain
 
-Before you drive a site, read `docs/paths/<site>/path.md`. The index is `docs/paths/README.md`.
-If that directory does not exist yet, create it on the first hop you finish. A row is the URL
-you were on, the control you used, the page that came next, and the result (`reached`,
-`success`, `stop`, `refused`, or `retry`). Follow `success` and `reached`. Do not repeat a
-`stop` or a `refused` hop. When this run reaches a new page, or shows a row was wrong, update
-that file in the same change. No personal data, no screenshots, and no tracking query such as
-`from=`. `classifyBoardPage()` in `src/mcp/board-pages.js` must name the same action.
+Before you drive a site, read the decision tree in `docs/paths/<site>/path.md`. The index is
+`docs/paths/README.md`. The tree is for you, not a human log. Match the page you are on to a
+`node` by its `see` line. Take a `branch` marked `reached` or `success`. Do not take `stop` or
+`refused`. A `retry` branch stays on that node. If the directory does not exist yet, create it
+on the first page you finish. A new page adds a `node` and a `branch` from the node you were on.
+A wrong hop changes that branch. No personal data, no screenshots, and no tracking query such as
+`from=`. `action` on an Indeed or Glassdoor node is the same name `classifyBoardPage()` returns.
+
+### First run, and any session with no profile
+
+Read `docs/paths/setup/path.md` and follow it before every other path. This is the whole job until `onboard_status` reports `onboarded: true`.
+
+1. **Install dependencies.** `start.js` and `npm run agent` run `npm install` when `node_modules` is missing. If that install fails, report the error and stop. Do not invent a profile.
+2. **Start the data worker** with `npm run agent`. It scrapes only after a profile exists. Until then its lanes wait.
+3. **Connect** to the JobPilot MCP and call `onboard_status`.
+4. **Onboard.** When `profileGaps` is not empty, call `open_onboarding` and give the user that URL. They upload a CV and fill the form. Poll `get_profile` until the gaps are empty. Do not ask for a file path in chat.
+5. **Stop there.** Do not search, save jobs, email, apply, connect, or DM. Do not reuse another person's name, email, phone, CV, salary, country, or target cities. An empty profile is not a persona.
+
+A profile that exists only in chat memory, a previous clone, or a generated dashboard is not this user's profile. The only profile is `data/profile.json`, and it is never committed.
 
 ### Your job when you are the brain driving a cycle
+
+Do this only after the setup path reaches `ready`.
 
 1. **Connect** to the JobPilot MCP (your CLI config above gives you the tools).
 2. **Find jobs across the WHOLE internet — not just LinkedIn.** LinkedIn posts/jobs are one source;
    also use `web_research` / `scrape_public_source` / `scrape_fresh` (hn/reddit/boards) to search the
-   open web, company careers pages, and regional job boards. Honor the user's location preferences
-   (`profile.preferences.locations`) and relocation stance (`workAuth.willingToRelocate`): when set,
-   actively hunt **Middle East and EU** roles and **relocation / visa-sponsorship** openings — these
-   are desirable, never skip them as "geo-locked". Save discovered leads with `save_jobs`.
+   open web, company careers pages, and regional job boards. Honor this profile's
+   `preferences.locations`, `preferences.locationScope`, and `workAuth`. Hunt relocation or visa
+   sponsorship only when this profile asks for it, and only in the places it lists. Save discovered
+   leads with `save_jobs`.
 3. **Read the path trace, then act on the freshest leads.** Follow `docs/paths/<site>/path.md`
    for that site before you open it, and update the trace when the hop changes. For each lead,
    judge relevance against the profile
@@ -87,7 +101,8 @@ that file in the same change. No personal data, no screenshots, and no tracking 
    `linkedin_connect` with a short personalized note. Record skips with `set_job_status` + a reason.
    Email is uncapped (your Gmail, no restriction risk) — pace sensibly. Never burst Easy Apply.
    If this user's profile has `links.jobpilot`, include that URL with the CV. Leave it out when the profile has none. Do not hardcode a repository URL.
-   **Follow `profile.preferences.mix`.** `sources` (LinkedIn, Indeed, Glassdoor, open web) and `actions` (email, LinkedIn posts, connect note, DM, Easy Apply, company form) each total 100. Spend the cycle in that proportion, newest first inside a slice. Read it with `get_profile`. The dashboard sliders save it. A missing mix uses the default in `src/mix.js` (LinkedIn 40, Indeed 20, Glassdoor 20, open web 20; email 34, posts 16, connect 16, DM 12, Easy Apply 10, forms 12). Do not park the cycle on one site.
+   **Follow `profile.preferences.mix`.** `sources` (LinkedIn, Indeed, Glassdoor, open web) and `actions` (email, LinkedIn posts, connect note, DM, Easy Apply, company form) each total 100. Spend the cycle in that proportion, newest first inside a slice. Read it with `get_profile`. The dashboard sliders save it. A missing mix uses the default in `src/mix.js` (LinkedIn 32, Indeed 16, Glassdoor 16, open web 16, X 20; email 34, posts 16, connect 16, DM 12, Easy Apply 10, forms 12). Do not park the cycle on one site.
+   **Global remote, relocation, and startup email.** Keep a lead only when the role is remote with no country allow-list (a timezone overlap is fine), or it offers visa sponsorship or relocation in a place this profile lists. Skip onsite or hybrid roles that offer neither visa nor relocation. Skip "no sponsorship" and "not able to offer relocation". Among the keepers, prefer an early startup or another tech company that can hire, and email the person named on the post: a founder, a hiring lead, or a recruiter address published for that role. Do not invent an address. `check_already_actioned` first, then `send_email` so the CV attaches. This path was checked: the CV went out on two such leads, one with published visa and relocation, and one early studio that is remote with a timezone overlap and a named contact. Both sends returned sent. The dashboard switch "Which leads to keep" stores `preferences.keepRemoteOrVisa` (on when the key is missing). `leadKeep()` in `src/mcp/sources.js` is what `score()` uses, so a country-locked remote role or an onsite role without visa or relocation is marked skip. A timezone overlap is not a country list. The dashboard switch "Adapt missing address fields" stores `preferences.adaptFields` (off when the key is missing). When it is on, a required postal code or province that is not on the profile is filled from the city. Salary, visa, and a street address stay as written.
 4. **Advance self-evolution once:** read `evolution_report`, take the top open encounter, open its
    screenshot+HTML under `data/evolution/`, fix the root cause in the relevant module (you may
    modify or create tools), verify it parses, `resolve_encounter`, then `contribute_improvements`.
@@ -120,6 +135,8 @@ How this is guaranteed:
 
 ## The moment you connect, in order
 
+If `onboard_status` says `phase` is `onboard`, follow `docs/paths/setup/path.md` and do nothing else in this list.
+
 1. **`onboard_status`** — Chrome debug up? which sites logged in? profile gaps? Everything branches here.
 2. **Chrome launches itself** for LinkedIn and Gmail. The server and the worker open the debug
    Chrome on port 9222, and a browser action relaunches it if that port is down. You rarely need
@@ -149,8 +166,8 @@ How this is guaranteed:
    (`http://127.0.0.1:7788/onboard`). The form is **pre-filled and editable** — they upload/replace
    their CV by drag-and-drop and paste links, roles, skills, salary, work-authorization, and a
    **free-form "anything else useful"** box the answer engine reads. Salary can be entered as a
-   current amount plus country-specific expected ranges (for example, Pakistan PKR 600k–800k
-   and Worldwide USD 5k); the matching country/currency is selected per application. They can also optionally
+   current amount plus country-specific expected ranges (one line per place, such as
+   `Home country = USD 5000-7000 / month`); the matching country/currency is selected per application. They can also optionally
    provide their current employer and companies to avoid; the current employer is always excluded
    from candidate queues. They can reopen `/onboard`
    anytime to change what they gave. Never ask for a file path in chat. Poll `get_profile` until

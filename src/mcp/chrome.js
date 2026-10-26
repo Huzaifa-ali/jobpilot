@@ -141,6 +141,14 @@ export async function launchChrome() {
       '--no-first-run', '--no-default-browser-check',
       '--no-service-autorun', '--disable-sync',
       '--restore-last-session=false',
+      // Keep every tab live. A discarded or frozen tab (Memory Saver, occlusion, or
+      // background throttling) makes Chrome 155 stall the browser-level CDP WebSocket
+      // handshake, so connectOverCDP() hangs until timeout. These flags keep the
+      // debug endpoint responsive. See Playwright issue 41714.
+      '--disable-features=CalculateNativeWinOcclusion,HighEfficiencyModeAvailable,MemorySaver',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling',
     ], { detached: true, stdio: 'ignore' });
     child.unref();
 

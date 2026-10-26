@@ -361,7 +361,7 @@ async function fillPage(page, dlg, ctx, job = {}) {
       let v = agentV !== undefined ? (Array.isArray(agentV) ? agentV.join(', ') : String(agentV)) : textAnswer(f.q, { numeric });
       // Country-of-residence questions: answer with the profile's country.
       if ((v == null || v === '') && /which country.*(reside|live|based)|country.*(you.*(reside|live)|of residence)|where.*(do you )?(reside|live)/i.test(f.q)) {
-        v = p.country || (p.location || '').split(',').pop()?.trim() || 'Pakistan';
+        v = p.country || (p.location || '').split(',').pop()?.trim() || '';
       }
       // Salary fields: LinkedIn renders them type=text but silently rejects non-numeric input
       // (e.g. "Negotiable"), blocking Review with no error. Force clean numeric digits, and

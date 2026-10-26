@@ -7,9 +7,9 @@
 Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
 the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
 
-**Stable release: [v3.2.0](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0).** Indeed Apply now works in the normal signed-in window.
+**Stable release: [v3.4.0](https://github.com/maazbin/jobpilot/releases/tag/v3.4.0).** The setup page and the dashboard test whether X, LinkedIn, and Gmail are actually signed in.
 
-[![Stable](https://img.shields.io/badge/release-v3.2.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.2.0)
+[![Stable](https://img.shields.io/badge/release-v3.4.0-22c55e.svg)](https://github.com/maazbin/jobpilot/releases/tag/v3.4.0)
 [![MIT License](https://img.shields.io/badge/license-MIT-14532d.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-2563eb.svg)](https://modelcontextprotocol.io)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-166534.svg)](https://nodejs.org)
@@ -136,7 +136,7 @@ This is the line we will keep. New work happens after this tag.
 - Phone-country widgets and cookie bars are closed before an external form is submitted.
 - Easy Apply treats an intercepted LinkedIn click as a throttle and backs off, instead of hammering the page.
 - Each job can select a private CV variant from `preferences.cvVariants`. The canonical CV stays the fallback. Resumes never go in git.
-- Search treats Middle East, EU, relocation, and visa sponsorship as desirable. Country scope still blocks outreach outside the profile when that scope is on.
+- Search uses only the places and roles on the profile. An empty profile does not search. Relocation and visa sponsorship are used when that profile asks for them. Country scope blocks outreach outside the profile country.
 
 **The loop around the code**
 
@@ -146,23 +146,33 @@ This is the line we will keep. New work happens after this tag.
 
 ---
 
-## Since v3.2.0
+## v3.4.0
+
+The setup page and the dashboard have **Test sign-in**. It opens X, LinkedIn, and Gmail in the debug Chrome and reports which of those sessions are signed in. An open tab whose address contains `x.com` is not treated as proof. The CV drop zone on the setup page keeps its script alive, and a click there opens the file dialog once.
+
+Search and outreach still wait until the profile form has a name, an email, a CV, a LinkedIn URL, target roles, and the sites you are signed into.
+
+## v3.3.0
+
+A lead stays when the role is remote and not limited to a country list. Timezone overlap is enough. An on-site or hybrid role stays only when the post offers visa sponsorship or relocation in a place on the profile. The dashboard switch for this is on unless the profile turns it off.
+
+Debug Chrome starts with Memory Saver and occluded-window throttling off, so a discarded tab does not stall the CDP handshake. A fresh clone finishes onboarding before any search. The dashboard mix sets how a cycle splits across sources and across email, posts, connect, DM, Easy Apply, and forms. An application letter includes the JobPilot repository URL only when that profile saved the link.
 
 Indeed **Apply now** works in the normal signed-in window, with the debug port closed. Three in-site applications reached the page that says the application was submitted. The jobs home is `https://pk.indeed.com/`. A `from=` tracking parameter is not part of that page. Typing `viewjob?jk=` into the address bar stops on Additional Verification. Leave that page. Do not click the check. Glassdoor job pages load after Google sign-in, and in-site Apply now there has still not been submitted. Issue [#1](https://github.com/maazbin/jobpilot/issues/1) is closed. Issue [#2](https://github.com/maazbin/jobpilot/issues/2) stays open for a driven Glassdoor browser.
 
 ### Path traces
 
-Every agent reads [`docs/paths/`](docs/paths/) before it drives a site, then writes what happened. `AGENTS.md` makes this mandatory for every brain. One directory per site. One row is one hop: the URL, the option used, the next page, and the result.
+Every agent reads the decision tree in [`docs/paths/`](docs/paths/) before it drives a site, then updates that tree. `AGENTS.md` makes this mandatory for every brain. One directory per site. A `node` is a page. A `branch` is one choice: the control, the next node, and `reached`, `success`, `stop`, `refused`, or `retry`.
 
 ```mermaid
-flowchart LR
-  read["Read docs/paths/site/path.md"] --> go["Follow a success hop"]
-  go --> page["A new page opens"]
-  page --> row["Add one row"]
-  row --> next["The next agent starts from that row"]
+flowchart TD
+  read["Match the page to a node"] --> go["Take a reached or success branch"]
+  read --> stop["A stop or refused branch is a leaf"]
+  go --> page["A new page has no node"]
+  page --> add["Add that node and one branch"]
 ```
 
-Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a row that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. Indeed and Glassdoor each have a log. A new site gets its own directory on the first hop. The dashboard **Paths** tab draws every hop from those files.
+Follow `success` and `reached`. Do not follow `stop` or `refused`. Correct a branch that a later run proves wrong. No personal data and no screenshots. `classifyBoardPage()` in `src/mcp/board-pages.js` names the same actions. A new site gets its own directory on the first page. The dashboard **Paths** tab draws the tree.
 
 ---
 
@@ -221,11 +231,18 @@ git clone https://github.com/maazbin/jobpilot
 cd jobpilot
 ```
 
-### 2. Open the folder in your agent
+### 2. Install, start the data worker, then open the folder in your agent
 
-Say:
+```bash
+npm install
+npm run agent
+```
 
-> Find relevant jobs, write to the people who are hiring, and keep the evolution loop moving.
+`npm install` is also what `start.js` runs on a fresh clone. `npm run agent` keeps the data worker up. It does not email or apply. With no profile, it waits.
+
+Then open the folder in your agent and say:
+
+> Set up JobPilot. Install what is missing, start the data worker, and onboard me. Do not search or apply until my profile is saved.
 
 The repo already contains the MCP config. `start.js` installs dependencies, opens Chrome on the debug port, and serves the tools. Approve the server if the CLI asks.
 
@@ -253,16 +270,9 @@ Add this to the global MCP config, with the absolute path to `start.js`:
 
 ### 3. Let the brain drive
 
-[`AGENTS.md`](AGENTS.md) is the standing guide. The brain checks `onboard_status`, opens `http://127.0.0.1:7788/onboard` if the profile has gaps, and then searches, judges, and acts. You upload the CV in that form. You never paste a file path into chat.
+[`AGENTS.md`](AGENTS.md) is the standing guide. The first path is [`docs/paths/setup/path.md`](docs/paths/setup/path.md). The brain checks `onboard_status`, opens `http://127.0.0.1:7788/onboard` while the profile has gaps, and waits. You upload the CV in that form. You never paste a file path into chat. Search and outreach start only after that form is complete.
 
-Keep the hands alive in another terminal:
-
-```bash
-npm install
-npm run agent
-```
-
-That process only scrapes and refreshes the dashboard. Stop it with the dashboard button or `npm run stop`.
+The data worker is the process started above. It scrapes and refreshes the dashboard after onboarding. Stop it with the dashboard button or `npm run stop`.
 
 `npm run worker` still contains the older action lanes. The supported setup is `npm run agent` plus your own CLI as the brain, so outreach is never double-sent.
 
@@ -291,7 +301,7 @@ Local only: **http://127.0.0.1:7788**
 - **Pipeline** — fresh leads, newest first, with per-lane status.
 - **Questions** — one answer, remembered. Agent-answered rows can be overridden.
 - **Evolution** — open encounters, screenshot, HTML snapshot, learned answers.
-- **Paths** — every hop in `docs/paths/`, one flow per site. Green is success, blue was reached, red is a stop or a refusal.
+- **Paths** — the decision tree in `docs/paths/`, one tree per site. Green is success, blue was reached, red is a stop or a refusal.
 - **Audit** — emails sent, applications, connects. Dedup warnings included.
 
 The UI is split under `src/dashboard/` so one section can change without a rewrite of the page.
@@ -305,7 +315,7 @@ jobpilot/
 ├── start.js                 # MCP entry: install, Chrome, respawn
 ├── mcp-server.js            # tool server + evolution loop
 ├── AGENTS.md                # the only brain guide; path traces are required
-├── docs/paths/              # one hop log per site; read it, then update it
+├── docs/paths/              # one decision tree per site; read it, then update it
 ├── src/
 │   ├── worker.js            # scout and dashboard; outreach only if not data-only
 │   ├── evolve.js            # encounters, answers, strategy

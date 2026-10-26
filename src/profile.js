@@ -36,7 +36,7 @@ const DEFAULT_PROFILE = {
   salary: {},            // legacy/default expected salary: { amount, currency, period }
   currentSalary: {},     // current compensation: { amount, currency, period }
   salaryExpectations: [], // [{ country, min, max, currency, period }]
-  workAuth: {},          // { needsSponsorship:bool, authorizedIn:["Pakistan"], willingToRelocate:bool }
+  workAuth: {},          // { needsSponsorship:bool, authorizedIn:["<country>"], willingToRelocate:bool }
 
   // Files
   cvPath: '',            // absolute path to CV/resume PDF
@@ -72,6 +72,8 @@ const DEFAULT_PROFILE = {
     // Off by default. When enabled, a job-specific draft may be generated from
     // canonical CV/profile facts after the dashboard explicitly records approval.
     allowTailoredCv: false,
+    // Off by default. When on, a missing postal code or province is filled from the city.
+    adaptFields: false,
     // Outreach policy. `email_first` drains cold-email leads before Easy Apply.
     outreachPriority: 'balanced',
     // Optional local CV variants. Each entry is { id, label, path, focuses, keywords }.

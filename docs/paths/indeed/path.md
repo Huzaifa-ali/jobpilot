@@ -1,20 +1,64 @@
 # Indeed
 
-Normal window, debug port closed. Issue #1 is closed. The driven browser still stops on Additional Verification. Do not click the check.
+```tree
+drive: normal_window
+port9222: closed
+follow: reached success
 
-| From | Option | To | Result |
-|---|---|---|---|
-| `https://pk.indeed.com/` | Button `full details of {title}`. The company is the link `{Company} (opens in a new tab)`. The city is the text next to that link. A `from=` tracking parameter is not part of this page. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
-| that homepage | Button `Find jobs` after the title and city are filled | `https://pk.indeed.com/jobs?q={query}&l={city}` | reached |
-| that results page | Button `full details of {title}`. The sort link `date` can open a dialog "Be the first to see new {query} jobs". Close it. Do not press Activate. | same page, URL gains `vjk=`, and the pane has a link named `Apply now` | reached |
-| that pane | link `Apply now` | `contact-info-module`, or `review-module` when contact, location, and the uploaded CV are already stored | reached |
-| address bar `viewjob?jk=` | — | Additional Verification Required | stop. Leave the page. Do not click the check. |
-| contact-info-module, "Add your contact information" | Continue. The profile fields were already filled | `.../profile-location` | reached |
-| profile-location, "Add or update your address" | Combo "Select a country" to the profile country (the default was United States). City combo "City, province/territory". Leave postcode and street blank. Continue | `.../ooc-question` | reached |
-| ooc-question | Yes when already authorized in the job country. Continue | `.../resume-selection-module/resume-selection` | reached |
-| resume-selection | The uploaded profile CV, not "Use your Indeed Resume". Continue | `.../review-module` | reached |
-| review-module, 100% | Submit your application. Invoke the button, including when it is still below the window. A click can land on the CV preview. Do not scroll inside that preview | `.../post-apply` | reached |
-| post-apply | The page says "Your application has been submitted" | — | success |
+node home
+  see: pk.indeed.com/ and no from=
+  action: open_jobs
+  branch reached | button full details of {title} | pane
+  branch reached | button Find jobs after the title and city are filled | results
+  branch stop | address bar viewjob?jk= | verification
+
+node results
+  see: pk.indeed.com/jobs?q={query}&l={city}
+  action: open_jobs
+  branch reached | button full details of {title}; close the date-alert dialog; do not press Activate | pane
+
+node pane
+  see: url has vjk= and a link named Apply now
+  action: apply_now
+  branch reached | link Apply now | contact
+  branch reached | link Apply now when contact, location, and the uploaded CV are already stored | review
+
+node verification
+  see: Additional Verification Required
+  action: stop
+  branch stop | leave the page | verification
+
+node contact
+  see: contact-info-module
+  action: continue
+  branch reached | Continue; profile fields are already filled | location
+
+node location
+  see: profile-location
+  action: set_country
+  branch reached | country combo to the profile country; city combo; blank postcode and street; Continue | work_auth
+
+node work_auth
+  see: ooc-question
+  action: answer_work_auth
+  branch reached | Yes when already authorized in the job country; Continue | resume
+
+node resume
+  see: resume-selection
+  action: select_uploaded_cv
+  branch reached | the uploaded profile CV, not Indeed Resume; Continue | review
+
+node review
+  see: review-module
+  action: submit
+  branch reached | button Submit your application; do not scroll the CV preview | post_apply
+
+node post_apply
+  see: post-apply
+  action: confirm_submitted
+  branch success | the page says Your application has been submitted | done
+  branch stop | the page does not say the application was submitted | post_apply
+```
 
 Stops: "Additional Verification Required" when the debug port is open. A captcha challenge. The reCAPTCHA notice under the form is not that challenge. The review page is not success.
 

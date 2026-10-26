@@ -58,6 +58,18 @@ export function renderConsentBar(autoContribute) {
 }
 
 /**
+ * Tailored-CV approval at the top of the dashboard, beside the other start toggles.
+ * Drafts only reorder facts already in the profile. The CV report shows status only.
+ * @param {boolean} allowTailoredCv
+ * @returns {string} HTML
+ */
+export function renderTailoredCvBar(allowTailoredCv) {
+  return allowTailoredCv
+    ? `<div class="consentbar" id="tailored-cv-bar">📄 <b>Tailored CV: ON.</b> Drafts may reorder facts already in your profile. The canonical CV stays the source of truth. <button class="cbtn off" onclick="tailoredConsent(false)">Disable tailored uploads</button></div>`
+    : `<div class="consentbar" id="tailored-cv-bar">📄 <b>Tailored CV: OFF.</b> Applications use your canonical CV until you approve drafts here. <button class="cbtn on" onclick="tailoredConsent(true)">Approve tailored CV drafts</button></div>`;
+}
+
+/**
  * Render the brain-driver STATUS bar. Brain control is ALWAYS-ON (not consent-gated) — this is a
  * status indicator, not a toggle. It shows whether installed coding-agent CLIs are driving the
  * pipeline, and what the brain is doing right now.
@@ -83,6 +95,20 @@ export function renderBrainLoopBar(brain = {}, installed = []) {
  * @param {boolean} live - worker heartbeat is fresh
  * @returns {string} HTML
  */
+/**
+ * Card that asks the debug Chrome whether X, LinkedIn, and Gmail are signed in.
+ * The button calls testSessions(), which posts to /api/session-check.
+ * @returns {string} HTML
+ */
+export function renderSessionCheckCard() {
+  return `<div class="boardlogin" id="session-check">
+  <b>Test X, LinkedIn, and Gmail.</b>
+  <p class="dim">This opens each site in the debug Chrome and reads the signed-in page. An open x.com tab is not treated as proof.</p>
+  <button class="opt" type="button" onclick="testSessions()">Test sign-in</button>
+  <span id="sessionStatus" class="dim"></span>
+</div>`;
+}
+
 export function renderBoardLoginCard(live) {
   return `<div class="boardlogin" id="board-login">
   <b>Sign in to Glassdoor, then Indeed.</b>
