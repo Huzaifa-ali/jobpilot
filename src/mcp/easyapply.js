@@ -668,6 +668,9 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
       const recheck = await analyzePage(dlg, ctx).catch(() => null);
       if (recheck && recheck.blocking.length) { await fillPage(page, dlg, ctx, job); await SLEEP(400); }
       const submit = dlg.getByRole('button', { name: /submit application/i }).first();
+      // The dialog footer (Next/Review/Submit) can sit below the fold on longer pages; Playwright
+      // isVisible() needs the element in the viewport, so scroll it in before the visibility check.
+      await submit.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (await submit.isVisible().catch(() => false)) {
         if (dryRun) { await discard(page); await page.close(); return { ok: true, result: 'dry_run_ready', detail: `reached submit at step ${step}`, meta }; }
         await submit.click();
@@ -679,6 +682,7 @@ export async function easyApply({ url, timeoutMs = 120000, dryRun = false, job =
         return { ok, result: ok ? 'applied' : 'stuck', detail: ok ? `submitted + verified (${step + 1} pages)` : 'submit not confirmed', meta, used: ctx.used };
       }
       const next = dlg.getByRole('button', { name: /continue to next step|review your application|^next$|^review$/i }).first();
+      await next.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
       if (!(await next.isVisible().catch(() => false))) { await encounter('easy_apply', 'no next/submit button', { url, page, scope: dlg }); break; }
       await next.click().catch(() => {});
       await SLEEP(1600);
