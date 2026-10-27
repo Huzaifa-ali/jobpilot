@@ -24,14 +24,31 @@ function apiBase(){
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-function switchTab(t){
+function switchTab(t, scroll){
   document.querySelectorAll('.pane').forEach(e => e.classList.toggle('on', e.id === 'p-' + t));
   document.querySelectorAll('.tabs button').forEach(e => e.classList.toggle('on', e.id === 'b-' + t));
   history.replaceState(null, '', '#tab-' + t);
+  if (!scroll) return;
+  const btn = document.getElementById('b-' + t);
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  if (r.top < 8 || r.bottom > window.innerHeight - 8) {
+    const bar = document.querySelector('.tabs');
+    if (bar) bar.scrollIntoView({ block: 'start' });
+  }
 }
 (function(){
-  const m = location.hash.match(/tab-(\\w+)/);
-  switchTab(m ? m[1] : 'easy_apply');
+  // The tab bar sits under the email table. Scroll only for a hash the user
+  // asked for. The default Easy Apply hash is written on every load, and the
+  // 45s refresh must not pull the page down to the bar.
+  const tab = (fromHashChange) => {
+    const m = location.hash.match(/tab-(\\w+)/);
+    const name = m ? m[1] : 'easy_apply';
+    const scroll = fromHashChange ? !!m : (!!m && name !== 'easy_apply');
+    switchTab(name, scroll);
+  };
+  tab(false);
+  window.addEventListener('hashchange', () => tab(true));
 })();
 
 // ── Bank filter ───────────────────────────────────────────────────────────────

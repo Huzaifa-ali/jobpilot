@@ -33,7 +33,7 @@ td{padding:6px 9px;border-bottom:1px solid #16203a;vertical-align:top}
 tr:hover td{background:#0f172a}.empty{text-align:center;color:#475569;padding:18px}
 .b{padding:1px 7px;border-radius:6px;font-size:11px;font-weight:700;border:1px solid}
 .b-agent{padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;border:1px solid;background:#0c1f3a22;color:#60a5fa;border-color:#60a5fa55}
-.tabs{display:flex;gap:6px;margin-top:18px;flex-wrap:wrap}
+.tabs{display:flex;gap:6px;margin-top:18px;flex-wrap:wrap;scroll-margin-top:12px}
 .tabs button{background:#111a2e;color:#94a3b8;border:1px solid #1e293b;border-bottom:none;padding:8px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-weight:600}
 .tabs button.on{background:#1e293b;color:#fff}.pane{display:none}.pane.on{display:block}
 .legend{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 18px;background:#111a2e;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;font-size:12px}
