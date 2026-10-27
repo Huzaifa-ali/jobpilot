@@ -243,7 +243,7 @@ input:focus,textarea:focus{outline:none;border-color:#6366f1}
 .boardlogin .opt{background:#1e293b;color:#e2e8f0;border:1px solid #3b82f6;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600}
 </style></head><body><div class="wrap">
 <h1>🤖 Job Agent — Setup</h1>
-<div class="sub">Upload your CV and paste your links. Everything stays on your machine.</div>
+<div class="sub">Upload your CV and paste your links. Everything stays on your machine. This is the only sign-in: LinkedIn, Gmail, X, and Instagram in the debug window, then Glassdoor with Google, then Indeed with that same Google account.</div>
 ${renderSessionCheckCard()}
 ${renderBoardLoginCard(false)}
 <script>
