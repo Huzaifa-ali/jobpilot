@@ -10,6 +10,66 @@ import { getContext } from '../agent/browser.js';
 import { getProfile, excludedCompanyMatch } from '../profile.js';
 import { isBadEmail } from '../tracker.js';
 
+// Which leads stay in the queue.
+// Keep a remote role with no country allow-list (a timezone overlap is fine),
+// or a role that offers visa sponsorship or relocation in a place this profile lists.
+// Onsite and hybrid need that offer. "No sponsorship" is not an offer.
+// Missing preferences.keepRemoteOrVisa means the filter is on.
+const REFUSAL = /\b(?:no (?:visa )?sponsorship|not able to offer relocation|unable to (?:provide |offer )?(?:visa )?sponsorship|(?:do not|don't|cannot|can't|will not|won't) (?:offer |provide )?(?:visa )?sponsor(?:ship)?|sponsorship (?:is )?(?:not|isn't) (?:available|provided|offered))\b/i;
+const OFFER = /\b(?:visa sponsorship|sponsorship (?:available|provided|offered)|will sponsor|we sponsor|relocation (?:assistance|package|support|provided|offered)|able to offer relocation|work permit (?:provided|sponsored))\b/i;
+const REMOTE = /\b(?:remote|work from anywhere|anywhere in the world|worldwide|fully remote|100%\s*remote)\b/i;
+const ONSITE = /\b(?:onsite|on-site|hybrid|in[- ]office|work from (?:the )?office)\b/i;
+const TZ = /\b(?:time\s*zones?|timezones?|hours|overlap|cet|cest|est|edt|pst|pdt|gmt|utc)\b/i;
+const LOCK_REGION = /\b(?:u\.?s\.?a?|united states|uk|u\.k\.|united kingdom|eu|europe|european union|emea|latam|latin america|canada|india|brazil|australia|germany|france|spain|singapore|hong kong)\b/i;
+const OPEN_WORDS = /\b(?:worldwide|anywhere|global|any country)\b/i;
+
+export function keepRemoteOrVisaEnabled(profile = {}) {
+  return profile?.preferences?.keepRemoteOrVisa !== false;
+}
+
+function placeHit(text, place) {
+  const escaped = String(place).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, 'i').test(text);
+}
+
+function listedOffer(text, profile) {
+  if (!OFFER.test(text) || REFUSAL.test(text)) return false;
+  const places = (profile?.preferences?.locations || []).map(s => String(s).trim()).filter(s => s.length >= 2);
+  if (!places.length) return true;
+  return places.some(place => placeHit(text, place));
+}
+
+export function countryLocked(text = '') {
+  const lc = String(text).toLowerCase();
+  if (/\b(?:us|u\.s\.|usa|uk|eu|emea|latam)[-\s]+only\b/.test(lc)) return true;
+  if (/\b(?:citizens?|residents?)\s+only\b/.test(lc) && LOCK_REGION.test(lc)) return true;
+  if (/\bmust (?:be |already )?(?:located|based|reside|live)[^.]{0,40}\b(?:us|usa|uk|eu|canada|india|europe)\b/.test(lc)) return true;
+  if (/\bremote\s+(?:in|from|within)\s+(?:the\s+)?(?:us|usa|uk|eu|emea|latam|canada|india)\b/.test(lc)) return true;
+  // "Remote - US" is a country list. "Remote, US timezones" is an overlap, not a list.
+  if (/\bremote\s*[-–—:,]\s*(?:the\s+)?(?:us|u\.s\.|usa|united states|uk|u\.k\.|eu|europe|canada|india)\b(?!\s*(?:time\s*zones?|timezones?|hours|overlap))/.test(lc)) return true;
+  const parens = [...lc.matchAll(/\bremote\b[^.\n]{0,40}\(([^)]{1,60})\)/g)].map(m => m[1]);
+  for (const inside of parens) {
+    if (OPEN_WORDS.test(inside)) continue;
+    if (TZ.test(inside)) continue;
+    if (LOCK_REGION.test(inside)) return true;
+  }
+  return false;
+}
+
+/** @returns {{ keep: boolean, why: string }} */
+export function leadKeep(text = '', profile = {}) {
+  if (!keepRemoteOrVisaEnabled(profile)) return { keep: true, why: '' };
+  const slice = String(text || '').slice(0, 2500);
+  const remote = REMOTE.test(slice);
+  const locked = countryLocked(slice);
+  const offer = listedOffer(slice, profile);
+  if (remote && !locked) return { keep: true, why: '' };
+  if (offer) return { keep: true, why: '' };
+  if (locked) return { keep: false, why: 'remote is limited to a country list' };
+  if (ONSITE.test(slice)) return { keep: false, why: 'onsite or hybrid without visa or relocation in a listed place' };
+  return { keep: true, why: '' };
+}
+
 const SLEEP = ms => new Promise(r => setTimeout(r, ms));
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0 Safari/537.36';
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -42,13 +102,13 @@ export function detectPortal(url = '') {
 const FORM_RE = /greenhouse|lever\.co|ashbyhq|workable|smartrecruiters|breezy|recruitee|bamboohr|jobvite|teamtailor|rippling|personio|forms\.gle|docs\.google\.com\/forms|typeform|tally\.so|\/careers?\/|\/jobs?\//i;
 
 /** Relevance 0..1 + hard skip. Title drives it (the full text has every buzzword).
- *  Returns {rel, skip, why} */
+ *  Returns {rel, skip, why}. Optional profile is for tests; callers use the saved profile. */
 const CV_TITLE = /\b(devops|site reliability|sre|cloud|platform|infrastructure|solutions? architect|cloud architect|kubernetes|terraform)\b/i;
 const NON_CV_TITLE = /\b(ai|a\.i\.|ml|machine learning|llm|gen ?ai|generative|nlp|rag|agent(ic)?|data scientist|data engineer|analytics|backend|back[- ]end|full[- ]?stack|software engineer|frontend|front[- ]end|developer|application engineer|product engineer|project manager|manager|director|vp|head of|chief|course|training|certification|tutorial|bootcamp|class)\b/i;
 const OFF_STACK = /\b(java(?!script)|\.net|c#|ruby|rails|rust|golang|ios|android|swift|kotlin|flutter|php|wordpress|shopify|salesforce|sap|servicenow|qa|test(er|ing)?|quality|sdet|manager|director|vp|head of|chief|designer|sales|marketing|support|analyst|embedded|firmware|hardware|mechanical|electrical|civil|network engineer|security engineer|unity|game|blockchain|solidity|mainframe|cobol|angular|react native|frontend|front[- ]end)\b/i;
 const GEO_LOCK = /\b(us|u\.s\.|usa|united states|uk|eu|europe|canada|india|brazil|br|latam|germany|australia)[- ]?(only|based only|residents? only|citizens? only)\b|\bmust (be|reside|live) (located |based )?in (the )?(us|usa|united states|uk|eu|canada|india)\b|\b(remote|hybrid)\s*\([^)]*\b(tx|md|in|ca|ny|wa|ma|va|fl|nj|il|ga|co|az|or|ut|dc)\b[^)]*\)|\b(remote|hybrid)\s*\(?(?:u\.?s\.?|usa|united states)\)?|\b100%\s+remote\s*\(?(?:u\.?s\.?|usa|united states)\)?|\b(onsite|on-site|work from office|wfo|hybrid)\b(?![^.]{0,40}remote)|\bus citizen|security clearance|\bh1b\b|\bvisa sponsorship\b|\bsponsorship required\b|\bmust have work authorization\b|(?:us|u\.s\.|united states)\s+(?:citizens?|nationals?|permanent residents?|green card holders?|ead holders?)|\bgreen card holders?\b|\bead holders?\b|\b(?:unable|cannot|can\'t) sponsor\b|\bno sponsorship\b|\bsponsorship (?:is )?(?:not|isn\'t) (?:available|provided|offered)\b|\bw-?2\b/i;
-export function score(text = '', title = '') {
-  const p = getProfile();
+export function score(text = '', title = '', profile) {
+  const p = profile || getProfile();
   const t = text.toLowerCase();
   const excluded = excludedCompanyMatch(text, p);
   // CRITICAL: skip-term and off-stack checks must ONLY fire on the job TITLE, never the
@@ -70,47 +130,32 @@ export function score(text = '', title = '') {
     const glued = key.replace(/[^a-z0-9]+/g, '');
     return head.includes(key) || (glued.length > 3 && headGlued.includes(glued));
   });
-  // `guessRole` often misses a clean title on free-form LinkedIn posts, which wrongly dropped real
-  // Pakistan AI/ML/Python/Backend jobs as "title not aligned". Rescue with a body-level signal
-  // (first 400 chars) so a clear Python/AI post counts as aligned even with no parsed title.
-  const headBody = (titleOnly ? titleOnly + ' ' : '') + t.slice(0, 400);
-  const headBodyGlued = headBody.replace(/[^a-z0-9]+/g, '');
-  const bodyRoleHit = (p.preferences?.roles || []).some(role => {
-    const key = String(role || '').toLowerCase().trim();
-    if (key.length < 3) return false;
-    const glued = key.replace(/[^a-z0-9]+/g, '');
-    return headBody.includes(key) || (glued.length > 3 && headBodyGlued.includes(glued));
-  });
-  const CORE_SKILL = /\b(python|fastapi|django|flask|langchain|langgraph|\brag\b|llm|gen ?ai|generative ai|agentic|machine learning|ml engineer|backend|back[- ]end|api)\b/i;
-  const core = roleHit || bodyRoleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head)) || (CORE_SKILL.test(headBody) && !OFF_STACK.test(head));
+  const core = roleHit || (CV_TITLE.test(head) && !NON_CV_TITLE.test(head));
   const offStack = OFF_STACK.test(head) && !/\b(python|ai|ml|llm|fastapi|django)\b/.test(head);
   let hit = 0; for (const s of terms) if (t.includes(s)) hit++;
   const rel = Math.min(1, (core ? 0.45 : 0) + 0.55 * Math.min(1, hit / 6));
   // Junior check: title + first 120 chars of body only — not the full description.
-  const tooJunior = /\b(freshers?|0\s*[-–]\s*[12]\s*(years|yrs)|entry[- ]level|internship|interns?\b|trainee|graduate program)\b/.test(titleOnly + ' ' + t.slice(0, 120));
+  const tooJunior = /\b(freshers?|0\s*[-–]\s*[12]\s*(years|yrs)|entry[- ]level|internship|interns?\b|trainee|graduate program|new[- ]?grads?)\b/.test(titleOnly + ' ' + t.slice(0, 120));
   const equityOnly = /\b(co-?founder|cofondat|equity[- ]only|unpaid|sweat equity|no salary)\b/.test(t.slice(0, 700));
   // Relocation / visa-sponsorship preference: if the user is open to relocating (profile), then
   // "visa sponsorship" / "relocation" / a preferred region (Middle East, EU, …) is a POSITIVE
   // signal, not a geo-lock to skip. Only treat geo as a hard skip when the role is locked to a
   // region the user is NOT targeting AND no relocation/sponsorship is offered.
-  // A country-scoped profile (Pakistan) is NOT "wants relocation" just because it lists local
-  // cities — relocation/visa phrasings must not rescue a foreign geo-lock for such a profile.
-  const scope = String(p.preferences?.locationScope || '').toLowerCase();
-  const countryScoped = scope === 'country' || scope === 'pakistan' || scope === String(p.country || '').toLowerCase();
-  const prefLocs = (p.preferences?.locations || []).map(s => String(s).toLowerCase());
-  const wantsRelo = !countryScoped && (p.workAuth?.willingToRelocate === true || prefLocs.length > 0);
-  const head2500 = text.slice(0, 2500).toLowerCase();
-  const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
-  const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
-  // Onsite/hybrid in the home country (Karachi onsite) is desirable, NOT a geo-lock. Exempt a
-  // home-country role from the geo skip unless it carries a genuine foreign lock (US-only, etc).
-  const homeCountry = String(p.country || '').toLowerCase();
-  const homeCities = homeCountry === 'pakistan' ? /\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot)\b/i : null;
-  const inHomeCountry = !!homeCountry && (head2500.includes(homeCountry) || (homeCities && homeCities.test(head2500)));
-  const foreignGeoLock = /\b(us|u\.s\.|usa|united states|uk|u\.k\.|eu|europe|canada|india|germany|australia)[- ]?(only|based only|residents? only|citizens? only)\b|\bus citizen|security clearance|\bh1b\b|\bno[- ]?sponsorship\b|\bgreen card\b/i.test(head2500);
-  const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
-  const geo = geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion)) && !(inHomeCountry && !foreignGeoLock);
-  const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geo ? 'location-restricted / authorization' : '';
+  let geoWhy = '';
+  if (keepRemoteOrVisaEnabled(p)) {
+    const decision = leadKeep(`${title || ''}\n${text || ''}`, p);
+    geoWhy = decision.keep ? '' : decision.why;
+  } else {
+    // Switch off: previous rule. A preferred place or any visa/relocation line clears the lock.
+    const prefLocs = (p.preferences?.locations || []).map(s => String(s).toLowerCase());
+    const wantsRelo = p.workAuth?.willingToRelocate === true || prefLocs.length > 0;
+    const head2500 = text.slice(0, 2500).toLowerCase();
+    const offersReloOrSponsor = /\b(visa sponsorship|sponsorship (available|provided|offered)|relocation (assistance|package|support|provided|offered)|will sponsor|we sponsor|work permit (provided|sponsored))\b/.test(head2500);
+    const inPrefRegion = prefLocs.some(loc => loc && head2500.includes(loc));
+    const geoRaw = GEO_LOCK.test(text.slice(0, 2500));
+    if (geoRaw && !(wantsRelo && (offersReloOrSponsor || inPrefRegion))) geoWhy = 'location-restricted / authorization';
+  }
+  const why = excluded ? `excluded company "${excluded}"` : skipHit ? `skip term "${skipHit}"` : !core ? 'title not aligned with CV target roles' : offStack ? 'off-stack title' : tooJunior ? 'junior/fresher' : equityOnly ? 'co-founder / equity-only' : geoWhy;
   return { rel: +rel.toFixed(2), skip: !!why, why };
 }
 
@@ -165,6 +210,16 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       console.error('[scrape] liPosts: hit login/authwall — session not logged in (landed on ' + page.url().slice(0, 80) + ')');
       return { ok: false, leads: [], detail: 'LinkedIn not logged in (authwall) — log into LinkedIn in the debug Chrome window' };
     }
+    // LinkedIn's search SDUI hydrates asynchronously — a single fixed sleep is sometimes too
+    // short on a cold session, so the DOM snapshot caught 0 containers ("0 posts"). Poll for the
+    // post containers (up to ~18s) before scraping, so a warm-up delay no longer yields an empty
+    // result. The containers carry a componentkey that includes "FeedType".
+    try {
+      await page.waitForFunction(
+        () => document.querySelectorAll('div[componentkey*="FeedType"]').length > 0,
+        { timeout: 18000 }
+      );
+    } catch { /* genuinely no results for this query/window — fall through, raw will be [] */ }
     for (let i = 0; i < maxScroll; i++) { await page.mouse.wheel(0, 2500); await SLEEP(900); }
     // expand truncated posts so hidden emails become visible
     await page.evaluate(() => [...document.querySelectorAll('button, span[role=button]')].filter(b => /^…?\s*more$|see more/i.test(b.innerText.trim())).forEach(b => b.click())).catch(() => {});
@@ -214,15 +269,10 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
       const postUrl = r.urn ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.urn}/` : '';
       console.error(`[scrape] liPosts: post "${(role || query).slice(0, 40)}" — permalink ${postUrl ? `found (urn:li:activity:${r.urn})` : 'NOT found (no activity URN)'}`);
       const channel = emails[0] ? 'email' : jobUrl ? 'easy_apply' : formUrl ? 'form' : r.actorUrl.includes('/in/') ? 'connect' : 'none';
-      // LinkedIn SDUI posts carry no structured location, so stamp one from the body when a PK
-      // city / "Pakistan" appears — lets the Pakistan location gate take the explicit-location
-      // pass instead of the strict blank-location branch (otherwise real Karachi posts drop).
-      const geoHit = (text.match(/\b(karachi|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot|pakistan)\b/i) || [])[0];
-      const location = geoHit ? (geoHit.toLowerCase() === 'pakistan' ? 'Pakistan' : `${geoHit[0].toUpperCase()}${geoHit.slice(1)}, Pakistan`) : '';
       leads.push({
         source: 'linkedin_post', company: guessCompany(bodyTxt), role: role || query.replace(/hiring|remote|email|send|share|cv|resume|dm me|urgent|we are/gi, '').replace(/\s+/g, ' ').trim(),
         url: postUrl || (emails[0] ? `email:${emails[0]}` : r.actorUrl + '#' + (r.key || '').slice(-12)),
-        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName, location,
+        email: emails[0] || '', emails, applyUrl: jobUrl || formUrl, postUrl, posterUrl: r.actorUrl.includes('/in/') ? r.actorUrl : '', posterName: r.actorName,
         postedAt: relToIso(time), postedRaw: time, description: text.slice(0, 2000), channel,
         portal: emails[0] ? 'email' : jobUrl ? 'linkedin' : formUrl ? detectPortal(formUrl) : 'linkedin', relevance: s.rel, skip: s.skip, skipWhy: s.why, remote: /remote/i.test(text),
       });
@@ -235,6 +285,79 @@ export async function liPosts(query, { maxScroll = 6, datePosted = 'past-24h' } 
     console.error('[scrape] liPosts: error:', e.message);
     return { ok: false, leads: [], detail: e.message.slice(0, 200) };
   } finally { await page.close().catch(() => {}); }
+}
+
+// ── X hiring posts (signed-in search, latest) ────────────────────────────────
+// Reads the live search. A login wall is not a result. Email in the post is the
+// email channel; otherwise the author handle is a message on X.
+export async function xPosts(query, { max = 12 } = {}) {
+  console.error('[scrape] xPosts: starting, query=' + query);
+  let ctx, page;
+  try { ctx = await getContext(); } catch (e) {
+    return { ok: false, leads: [], detail: `browser error: ${e.message}` };
+  }
+  try {
+    page = await ctx.newPage();
+    page.setDefaultTimeout(35000);
+    const q = encodeURIComponent(query);
+    await page.goto(`https://x.com/search?q=${q}&src=typed_query&f=live`, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await page.waitForTimeout(3500);
+    const landed = page.url();
+    if (/\/i\/flow\/login|\/login/.test(landed)) {
+      return { ok: false, leads: [], detail: 'not logged in to X' };
+    }
+    const raw = await page.evaluate((limit) => {
+      const articles = [...document.querySelectorAll('article[data-testid="tweet"]')].slice(0, limit);
+      return articles.map(a => {
+        const text = a.querySelector('[data-testid="tweetText"]')?.innerText || '';
+        const name = a.querySelector('[data-testid="User-Name"]')?.innerText || '';
+        const link = a.querySelector('a[href*="/status/"]');
+        const time = a.querySelector('time')?.getAttribute('datetime') || '';
+        const handle = (name.match(/@\w+/) || [''])[0];
+        const display = name.split('\n').map(s => s.trim()).find(s => s && !s.startsWith('@')) || '';
+        return { text, display, handle, url: link ? link.href.split('?')[0] : '', time };
+      }).filter(r => r.text);
+    }, max);
+    const leads = [];
+    let notHiring = 0, skipped = 0;
+    for (const r of raw) {
+      const hiring = /hiring|looking for|we.?re seeking|open (role|position)|join (our|the) team|send (your )?(cv|resume)|apply|vacanc|opening/i.test(r.text);
+      if (!hiring) { notHiring++; continue; }
+      const emails = [...new Set(emailsIn(r.text))].filter(e => !isBadEmail(e));
+      const labeled = r.text.match(/role:\s*([^\n|]{3,80})/i);
+      const role = (labeled ? labeled[1] : guessRole(r.text) || '').replace(/\s+/g, ' ').trim();
+      const s = score(r.text, role || r.text.slice(0, 80));
+      if (s.skip) skipped++;
+      const handle = (r.handle || '').replace(/^@/, '');
+      leads.push({
+        source: 'x_post',
+        company: guessCompany(r.text) || r.display || handle,
+        role: role || 'Software Engineer',
+        url: r.url || (handle ? `https://x.com/${handle}` : `x:${emails[0] || r.text.slice(0, 40)}`),
+        email: emails[0] || '',
+        emails,
+        applyUrl: '',
+        postUrl: r.url,
+        posterUrl: handle ? `https://x.com/${handle}` : '',
+        posterName: r.display || handle,
+        postedAt: r.time || new Date().toISOString(),
+        postedRaw: r.time,
+        description: r.text.slice(0, 2000),
+        channel: emails[0] ? 'email' : handle ? 'dm' : 'none',
+        portal: emails[0] ? 'email' : 'x',
+        relevance: s.rel,
+        skip: s.skip,
+        skipWhy: s.why,
+        remote: /remote/i.test(r.text),
+      });
+    }
+    const withEmail = leads.filter(l => l.email).length;
+    console.error(`[scrape] xPosts: ${raw.length} posts → ${leads.length} hiring (${notHiring} not hiring, ${skipped} skip, ${withEmail} email)`);
+    return { ok: true, leads, detail: `${raw.length} posts → ${leads.length} hiring leads (${withEmail} with email)` };
+  } catch (e) {
+    console.error('[scrape] xPosts: error:', e.message);
+    return { ok: false, leads: [], detail: e.message.slice(0, 200) };
+  } finally { await page?.close().catch(() => {}); }
 }
 
 // ── LinkedIn job listings (freshest) ─────────────────────────────────────────
