@@ -12,7 +12,25 @@
 //
 // Everything personal comes from data/profile.json — nothing about the user is hardcoded here.
 import { getProfile } from '../profile.js';
-import { learnedAnswer, usedAnswer, recordAgentAnswer } from '../evolve.js';
+import {
+  learnedAnswer as _learnedAnswer,
+  usedAnswer as _usedAnswer,
+  recordAgentAnswer as _recordAgentAnswer,
+} from '../evolve.js';
+
+// Evolution memory lives in the sql.js DB. In a pure unit test (and theoretically before the
+// DB is initialized) those reads/writes would throw. The answer engine must never crash a whole
+// application over a memory lookup, so every evolution-memory call is wrapped defensively: on
+// any error we behave as if there is no learned answer and continue with profile-based rules.
+function learnedAnswer(question) {
+  try { return _learnedAnswer(question); } catch { return null; }
+}
+function usedAnswer(question) {
+  try { _usedAnswer(question); } catch { /* best-effort bookkeeping only */ }
+}
+function recordAgentAnswer(question, value, basis) {
+  try { _recordAgentAnswer(question, value, basis); } catch { /* best-effort bookkeeping only */ }
+}
 
 /** Safe getter for profile.answers key. */
 function ans(p, key, dflt = '') {
@@ -168,10 +186,11 @@ export function salaryFor(q, p, numeric = false) {
  * @param {string} question
  * @param {object} [opts]
  * @param {boolean} [opts.numeric] - true = only return a parseable number string
+ * @param {object}  [opts.profile] - inject a profile (tests); defaults to getProfile()
  * @returns {string|null}
  */
-export function textAnswer(question, { numeric = false } = {}) {
-  const p = getProfile();
+export function textAnswer(question, { numeric = false, profile = null } = {}) {
+  const p = profile || getProfile();
   const q = (question || '').toLowerCase().replace(/\s+/g, ' ').trim();
   if (!q) return null;
   const L = p.links || {};
@@ -324,6 +343,29 @@ export function textAnswer(question, { numeric = false } = {}) {
     }
   }
 
+  // CONFIDENT FINAL FALLBACKS — the engine must answer EVERY field so a required field never
+  // parks as "needs your answer" and loops skip→retry→skip (the user's core complaint).
+  //   • numeric  → "0" is the safe, parseable default when nothing in the profile applies
+  //                (e.g. "how many of X" for a tech the user hasn't used). Never leave a
+  //                required numeric empty — an empty numeric field blocks the page silently.
+  //   • free-text→ a concise profile-grounded line (cover text) so open text is never blank.
+  if (numeric) {
+    recordAgentAnswer(question, '0', 'safe numeric default (no profile value matched)');
+    return '0';
+  }
+  // Only fall back to generated prose for genuine QUESTION-like free text (multi-word or a
+  // question mark), never for a short single-token label we simply didn't recognize — writing
+  // a cover-letter paragraph into a one-word field would be wrong.
+  const looksLikeQuestion = /\?/.test(q) || q.split(' ').length >= 3;
+  if (looksLikeQuestion) {
+    const v = coverText(p);
+    if (v && String(v).trim()) {
+      const trimmed = String(v).slice(0, 1400);
+      recordAgentAnswer(question, trimmed, 'profile-grounded default (generated from CV/projects/summary)');
+      return trimmed;
+    }
+  }
+
   return null;
 }
 
@@ -333,8 +375,8 @@ export function textAnswer(question, { numeric = false } = {}) {
  * @param {string[]} options
  * @returns {string|null}
  */
-export function choiceAnswer(question, options) {
-  const p = getProfile();
+export function choiceAnswer(question, options, { profile = null } = {}) {
+  const p = profile || getProfile();
   const q = (question || '').toLowerCase();
   const opts = options.map(o => (o || '').trim()).filter(o => o && !/^select/i.test(o));
   if (!opts.length) return null;
@@ -416,8 +458,27 @@ export function choiceAnswer(question, options) {
     recordAgentAnswer(question, derived, basis);
     return derived;
   }
+
+  // CONFIDENT FINAL FALLBACK — never return null for a choice question. A required radio/select
+  // with no match was the second-biggest reason applications parked as "needs your answer" and
+  // then looped skip→retry→skip. Pick the safest option deterministically:
+  //   • a Yes/No pair → "Yes" (most screening/consent/capability questions are affirmative;
+  //     the harmful-negative cases—criminal/felony/non-compete—are already handled above).
+  //   • otherwise → the first non-negative, non-"other"/"prefer not" option, else the first.
+  if (yes && no) {
+    safeRecordChoice(question, yes, 'safe default: Yes for an unmatched yes/no question');
+    return yes;
+  }
+  const safe = opts.find(o => !/^(none|n\/?a|other|prefer not|decline|rather not|do ?n.?t)/i.test(o)) || opts[0];
+  if (safe) {
+    safeRecordChoice(question, safe, 'safe default: first neutral option for an unmatched choice');
+    return safe;
+  }
   return null;
 }
+
+// Small helper so the two final-fallback branches record consistently without repeating the try.
+function safeRecordChoice(question, value, basis) { recordAgentAnswer(question, value, basis); }
 
 /**
  * Generate a personalised cover text from profile fields and projects.

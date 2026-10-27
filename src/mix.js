@@ -1,9 +1,12 @@
 // Each group in preferences.mix totals 100. Missing keys use MIX_DEFAULT.
+//
+// MIX_DEFAULT is now DERIVED from the pluggable source registry (src/sources-registry.js)
+// so adding a platform there automatically flows into the default mix — no edit here. The
+// dashboard still persists the stable five source buckets (linkedin/indeed/glassdoor/web/x);
+// open-web platforms (web_search, wellfound, dice, …) roll into the shared `web` bucket.
+import { mixDefaults } from './sources-registry.js';
 
-export const MIX_DEFAULT = {
-  sources: { linkedin: 32, indeed: 16, glassdoor: 16, web: 16, x: 20 },
-  actions: { email: 34, posts: 16, connect: 16, dm: 12, easy_apply: 10, form: 12 },
-};
+export const MIX_DEFAULT = mixDefaults();
 
 const GROUPS = {
   sources: ['linkedin', 'indeed', 'glassdoor', 'web', 'x'],

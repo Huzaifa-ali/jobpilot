@@ -9,8 +9,12 @@
 // honored on the lane's NEXT iteration without a restart.
 // Precedence high→low: env JOBPILOT_APPLY_SOURCES, profile.preferences.applySources, default-all.
 import { getProfile } from './profile.js';
+import { applySourceIds } from './sources-registry.js';
 
-export const ALL_SOURCES = ['linkedin', 'indeed', 'glassdoor'];
+// Derived from the pluggable source registry — the applyable board set is whatever the
+// registry marks as an apply channel (kind 'apply'|'both'). Today that is linkedin/indeed/
+// glassdoor; registering a new apply channel there makes it selectable here with no edit.
+export const ALL_SOURCES = applySourceIds();
 
 function tokens(input) {
   if (input == null) return [];
