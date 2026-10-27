@@ -24,6 +24,7 @@ import { dashStyles } from './styles.js';
 import {
   renderHeader,
   renderLoginBanners,
+  renderLoginAsks,
   renderBoardLoginCard,
   renderSessionCheckCard,
   renderConsentBar,
@@ -46,6 +47,7 @@ import { renderQuestionsTab, renderEvolutionTab } from './partials/evolution.js'
 import { readPathTraces, renderPathsTab } from './partials/paths.js';
 import { renderStrategiesTab } from './partials/strategies.js';
 import { listStrategies } from '../strategies.js';
+import { listLoginAsks } from '../login-ask.js';
 import { renderCvTab } from './partials/cv.js';
 import { dashScripts } from './partials/clientscripts.js';
 import { esc, STATUS, badge } from './helpers.js';
@@ -158,6 +160,7 @@ ${renderHeader({ name: p.name, live, state, hbAge, totalJobs: tot.jobs, UIPORT }
 
 <div class="wrap">
 
+  ${renderLoginAsks(listLoginAsks())}
   ${renderLoginBanners(state.loginNeeded)}
   ${renderSessionCheckCard()}
   ${renderBoardLoginCard(live)}

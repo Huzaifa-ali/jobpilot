@@ -71,6 +71,8 @@ A wrong hop changes that branch. No personal data, no screenshots, and no tracki
 
 Before you drive a site, also read `src/strategies.js`. Each platform has its own steps, with `worked` and `failed` already recorded. Then read `data/strategy-notes.json` when it exists. A human verdict of `wrong` blocks that step. A verdict of `works` is the step to prefer. On Instagram, read the comments first, then the bio, and send a message only when the post asks. The dashboard Strategies tab is where the human corrects this.
 
+When a site is signed out, try its login page once. If that fails, try Google sign-in or sign-up once. Do not type a password and do not solve a check. Record both results with `applyLoginResult` in `src/login-ask.js`. A Google failure after the login failure puts that site on the dashboard sign-in panel. Keep opening that site until a later check is signed in and the panel row clears. Glassdoor and Indeed use the normal window, Glassdoor with Google first.
+
 ### First run, and any session with no profile
 
 Read `docs/paths/setup/path.md` and follow it before every other path. This is the whole job until `onboard_status` reports `onboarded: true`.

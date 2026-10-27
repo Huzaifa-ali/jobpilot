@@ -46,6 +46,23 @@ export function renderLoginBanners(loginNeeded = {}) {
   ).join('');
 }
 
+export function renderLoginAsks(asks = []) {
+  if (!asks.length) return '';
+  const rows = asks.map(a => {
+    const tried = a.how === 'google'
+      ? 'I tried Google sign-in. It still needs you.'
+      : a.how === 'normal'
+        ? 'I tried the login page, then Google in the normal window. Both failed.'
+        : 'I tried the login page, then Google. Both failed.';
+    const open = a.how === 'normal'
+      ? `<button type="button" class="loginbtn" onclick="openBoardLogin()">Open Glassdoor and log in</button>`
+      : `<a class="loginbtn" href="${esc(a.url)}" target="_blank" rel="noopener">Open ${esc(a.label)} and log in</a>`;
+    const detail = a.detail ? `<div class="dim">${esc(a.detail)}</div>` : '';
+    return `<div class="loginask-row"><b>${esc(a.label)} needs you to log in.</b> ${tried} Please sign in on that window. I will keep trying there. ${open}${detail}</div>`;
+  }).join('');
+  return `<div class="loginask" id="login-ask"><b>Sign in so I can keep going.</b>${rows}</div>`;
+}
+
 /**
  * Render the self-contribution consent toggle bar.
  * @param {boolean} autoContribute - current consent state
