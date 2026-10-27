@@ -61,6 +61,27 @@ async function ans(qkey, value){
   }
 }
 
+// ── Train a platform strategy ─────────────────────────────────────────────────
+async function trainStrategy(ev, id){
+  ev.preventDefault();
+  const verdict = ev.submitter ? ev.submitter.value : 'works';
+  const note = ev.target.note ? ev.target.note.value : '';
+  const base = apiBase();
+  try {
+    const r = await fetch(base + '/api/strategy-note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, verdict, note })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    location.hash = '#tab-strategies';
+    location.reload();
+  } catch(e) {
+    alert('Could not save the strategy note. Open the dashboard from the server URL (' + base + ').\\n\\n' + e.message);
+  }
+  return false;
+}
+
 // ── Override an agent-answered question ───────────────────────────────────────
 function overrideAns(qkey, currentVal){
   const newVal = prompt('Override agent answer for this question:\\n\\n(current: ' + currentVal + ')', currentVal);

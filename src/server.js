@@ -176,6 +176,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    // ── POST /api/strategy-note → human marks a platform step works or wrong ─
+    if (req.method === 'POST' && url.pathname === '/api/strategy-note') {
+      const { saveStrategyNote } = await import('./strategies.js');
+      const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      if (!saveStrategyNote(body.id, body.verdict, body.note)) return json(res, 400, { ok: false, error: 'unknown strategy' });
+      return json(res, 200, { ok: true });
+    }
+
     // ── GET /evidence/<file> → encounter screenshots + HTML snapshots ──────────
     if (req.method === 'GET' && url.pathname.startsWith('/evidence/')) {
       const name = path.basename(decodeURIComponent(url.pathname.slice('/evidence/'.length)));
