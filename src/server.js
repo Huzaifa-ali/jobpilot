@@ -127,12 +127,21 @@ const server = http.createServer(async (req, res) => {
     }
     // ── POST /api/session-check → real sign-in probe for X, LinkedIn, and Gmail ─
     if (req.method === 'POST' && url.pathname === '/api/session-check') {
-      const { verifyLogins } = await import('./agent/browser.js');
+      const { verifyLogins, tryGoogleSignIn } = await import('./agent/browser.js');
+      const { applyLoginResult, LOGIN_SITES } = await import('./login-ask.js');
       const v = await verifyLogins();
       if (v.detail?.error && !v.x && !v.linkedin && !v.gmail) {
         return json(res, 200, { ok: false, error: v.detail.error, x: false, linkedin: false, gmail: false });
       }
-      return json(res, 200, { ok: true, x: !!v.x, linkedin: !!v.linkedin, gmail: !!v.gmail });
+      const out = { x: !!v.x, linkedin: !!v.linkedin, gmail: !!v.gmail };
+      for (const site of ['x', 'linkedin', 'gmail']) {
+        if (out[site]) { applyLoginResult(site, 'ok', 'ok'); continue; }
+        const google = await tryGoogleSignIn(site, LOGIN_SITES[site][1]);
+        if (google.google === 'ok') out[site] = true;
+        applyLoginResult(site, 'fail', google.google, google.why);
+      }
+      try { writeDash(); } catch {}
+      return json(res, 200, { ok: true, ...out });
     }
     // ── POST /api/consent → user opts in/out of auto-contribution (code/doc push) ──
     // NOTE: brain control is NOT consent-gated (it is always-on, core behavior). The only consent
