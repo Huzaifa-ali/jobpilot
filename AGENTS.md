@@ -69,6 +69,8 @@ on the first page you finish. A new page adds a `node` and a `branch` from the n
 A wrong hop changes that branch. No personal data, no screenshots, and no tracking query such as
 `from=`. `action` on an Indeed or Glassdoor node is the same name `classifyBoardPage()` returns.
 
+Before you drive a site, also read `src/strategies.js`. Each platform has its own steps, with `worked` and `failed` already recorded. Then read `data/strategy-notes.json` when it exists. A human verdict of `wrong` blocks that step. A verdict of `works` is the step to prefer. On Instagram, read the comments first, then the bio, and send a message only when the post asks. The dashboard Strategies tab is where the human corrects this.
+
 ### First run, and any session with no profile
 
 Read `docs/paths/setup/path.md` and follow it before every other path. This is the whole job until `onboard_status` reports `onboarded: true`.
