@@ -18,8 +18,8 @@ function row(s) {
   ${said}
   <form onsubmit="return trainStrategy(event,'${esc(s.id)}')" style="margin-top:6px">
     <input name="note" placeholder="What might work, or what is wrong" value="${esc(s.human?.note || '')}" style="width:min(520px,100%)">
-    <button type="submit" value="works">This works</button>
-    <button type="submit" value="wrong">This is wrong</button>
+    <button type="submit" value="works" style="cursor:pointer">This works</button>
+    <button type="submit" value="wrong" style="cursor:pointer">This is wrong</button>
   </form>
 </div>`;
 }
