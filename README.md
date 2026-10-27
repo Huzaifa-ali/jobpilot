@@ -2,10 +2,20 @@
 
 # JobPilot
 
-### A brain on top. Tools underneath. A system that rewrites itself when it gets stuck.
+### One brain. Six doors. A hunt that learns the lock.
 
-Your coding agent is the brain. JobPilot has no model of its own. It is the MCP tool server,
-the browser hands, the dedup memory, and the loop that turns a stuck page into a fix on GitHub.
+You point a coding agent at this folder. That agent is the brain. JobPilot is the body: your browser, a memory that never asks twice, and a loop that turns a stuck page into a fix on GitHub. There is no model hiding in here.
+
+<p align="center">
+<img alt="LinkedIn" src="https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white">
+<img alt="Indeed" src="https://img.shields.io/badge/Indeed-003A9B?style=for-the-badge&logo=indeed&logoColor=white">
+<img alt="Glassdoor" src="https://img.shields.io/badge/Glassdoor-0CAA41?style=for-the-badge&logo=glassdoor&logoColor=white">
+<img alt="X" src="https://img.shields.io/badge/X-111111?style=for-the-badge&logo=x&logoColor=white">
+<img alt="Instagram" src="https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white">
+<img alt="Gmail" src="https://img.shields.io/badge/Gmail-EA4335?style=for-the-badge&logo=gmail&logoColor=white">
+</p>
+
+The first minutes are quiet on purpose. Dependencies install themselves. Leave that window open. The browser opens once, on first onboard, and you sign in on every platform above. After that, those sessions stay.
 
 **Stable release: [v3.4.0](https://github.com/maazbin/jobpilot/releases/tag/v3.4.0).** The setup page and the dashboard test whether X, LinkedIn, and Gmail are actually signed in.
 
@@ -231,20 +241,30 @@ git clone https://github.com/maazbin/jobpilot
 cd jobpilot
 ```
 
-### 2. Install, start the data worker, then open the folder in your agent
+### 2. First run — let the dependencies finish
 
 ```bash
-npm install
 npm run agent
 ```
 
-`npm install` is also what `start.js` runs on a fresh clone. `npm run agent` keeps the data worker up. It does not email or apply. With no profile, it waits.
+A fresh clone has no `node_modules`. `npm run agent` and `start.js` run `npm install` for you. Leave that process open until it says the dependencies are installed. Do not hunt, and do not open a browser, while it runs. If the install fails, stop and read the error.
 
-Then open the folder in your agent and say:
+`npm run agent` then keeps the data worker up. It does not email or apply. With no profile, it waits.
 
-> Set up JobPilot. Install what is missing, start the data worker, and onboard me. Do not search or apply until my profile is saved.
+Open the folder in your agent and say:
 
-The repo already contains the MCP config. `start.js` installs dependencies, opens Chrome on the debug port, and serves the tools. Approve the server if the CLI asks.
+> Set up JobPilot. Let the first-run dependency install finish. Start the data worker. Open the browser once for onboard. I will sign in on every platform. Do not search or apply until my profile is saved.
+
+### 3. One browser, on first onboard
+
+The browser opens once, for this sign-in. Later runs reuse it.
+
+1. In the debug window, sign in to **LinkedIn**, **Gmail**, **X**, and **Instagram**.
+2. Close that debug window. Open **Glassdoor** and choose **Continue with Google**. Then sign in to **Indeed** with the same Google account.
+
+Opening Indeed first sticks on a check with no form. Upload the CV on the onboard page. Do not paste a file path into chat.
+
+The repo already contains the MCP config. `start.js` installs dependencies and serves the tools. Approve the server if the CLI asks. Sign in during the first onboard only.
 
 Set `JOBPILOT_NO_AUTOWORKER=1` on the MCP server so it stays a tool server and does not start a second worker.
 
@@ -268,7 +288,7 @@ Add this to the global MCP config, with the absolute path to `start.js`:
 
 </details>
 
-### 3. Let the brain drive
+### 4. Let the brain drive
 
 [`AGENTS.md`](AGENTS.md) is the standing guide. The first path is [`docs/paths/setup/path.md`](docs/paths/setup/path.md). The brain checks `onboard_status`, opens `http://127.0.0.1:7788/onboard` while the profile has gaps, and waits. You upload the CV in that form. You never paste a file path into chat. Search and outreach start only after that form is complete.
 

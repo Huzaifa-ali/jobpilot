@@ -77,10 +77,10 @@ When a site is signed out, try its login page once. If that fails, try Google si
 
 Read `docs/paths/setup/path.md` and follow it before every other path. This is the whole job until `onboard_status` reports `onboarded: true`.
 
-1. **Install dependencies.** `start.js` and `npm run agent` run `npm install` when `node_modules` is missing. If that install fails, report the error and stop. Do not invent a profile.
+1. **Let the first run install.** If `node_modules` is missing, `start.js` and `npm run agent` run `npm install`. Tell the user in one line to leave that process open until it finishes. Wait. If it fails, report the error and stop. Do not invent a profile. Do not open the browser during the install.
 2. **Start the data worker** with `npm run agent`. It scrapes only after a profile exists. Until then its lanes wait.
 3. **Connect** to the JobPilot MCP and call `onboard_status`.
-4. **Onboard.** When `profileGaps` is not empty, call `open_onboarding` and give the user that URL. They upload a CV and fill the form. Poll `get_profile` until the gaps are empty. Do not ask for a file path in chat.
+4. **Onboard, and open the browser once.** When `profileGaps` is not empty, call `open_onboarding` and give the user that URL. This is the only sign-in window. They upload a CV in the form. In the debug window they sign in to LinkedIn, Gmail, X, and Instagram. Then close that debug window, open Glassdoor with Google, and sign in to Indeed with the same Google account. Poll `get_profile` until the gaps are empty. Do not ask for a file path in chat. Later runs reuse those sessions.
 5. **Stop there.** Do not search, save jobs, email, apply, connect, or DM. Do not reuse another person's name, email, phone, CV, salary, country, or target cities. An empty profile is not a persona.
 
 A profile that exists only in chat memory, a previous clone, or a generated dashboard is not this user's profile. The only profile is `data/profile.json`, and it is never committed.
