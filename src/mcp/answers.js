@@ -423,7 +423,7 @@ export function choiceAnswer(question, options, { profile = null } = {}) {
       derived = yes; basis = 'standard yes for consent/agreement questions';
     }
   } else if (/years/.test(q)) {
-    const y = parseFloat(textAnswer('years of experience') || '0');
+    const y = parseFloat(textAnswer('years of experience', { profile: p }) || '0');
     derived = opts.find(o => { const m = o.match(/(\d+)\s*[-–to]+\s*(\d+)/); return m && y >= +m[1] && y <= +m[2]; })
       || opts.find(o => { const m = o.match(/(\d+)\s*\+/); return m && y >= +m[1]; })
       || opts[opts.length - 1];
@@ -488,7 +488,7 @@ function safeRecordChoice(question, value, basis) { recordAgentAnswer(question, 
 export function coverText(p = getProfile()) {
   const hook = (p.answers || {})['cover hook'] || p.summary || p.extra || 'I build and ship production software end to end.';
   const proj = (p.projects || []).slice(0, 3).map(x => `${x.name} (${x.blurb})`).join('; ');
-  const yrs   = textAnswer('years of experience');
+  const yrs   = textAnswer('years of experience', { profile: p });
   const skills = (p.skills || []).slice(0, 6).join(', ');
   return [
     hook,
