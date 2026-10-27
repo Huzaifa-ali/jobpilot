@@ -22,6 +22,8 @@
     "test:mcp": "node scripts/test-mcp.mjs",
     "test:cv": "node scripts/test-cv-feature.mjs",
     "test:apply-sources": "node scripts/test-apply-sources.mjs",
+    "test:sources-registry": "node scripts/test-sources-registry.mjs",
+    "test:answers": "node scripts/test-answers-confidence.mjs",
     "test:pr-review": "node scripts/test-pr-review.mjs"
   },
   "dependencies": {

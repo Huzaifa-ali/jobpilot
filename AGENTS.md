@@ -86,12 +86,18 @@ A profile that exists only in chat memory, a previous clone, or a generated dash
 Do this only after the setup path reaches `ready`.
 
 1. **Connect** to the JobPilot MCP (your CLI config above gives you the tools).
-2. **Find jobs across the WHOLE internet — not just LinkedIn.** LinkedIn posts/jobs are one source;
-   also use `web_research` / `scrape_public_source` / `scrape_fresh` (hn/reddit/boards) to search the
-   open web, company careers pages, and regional job boards. Honor this profile's
-   `preferences.locations`, `preferences.locationScope`, and `workAuth`. Hunt relocation or visa
-   sponsorship only when this profile asks for it, and only in the places it lists. Save discovered
-   leads with `save_jobs`.
+2. **Find jobs across the WHOLE internet — not just LinkedIn. Web search is MANDATORY every cycle.**
+   LinkedIn, Indeed, and Glassdoor are only three of many sources. **Every cycle you MUST run a web
+   search** — the JobPilot tools `web_research` / `scrape_public_source` / `scrape_fresh`
+   (hn/reddit/boards) AND, when your CLI brain has its own internet/web-search capability, that too —
+   to discover roles across the open web: company careers pages, regional job boards, and platforms
+   beyond the big three (e.g. Wellfound, Dice, We Work Remotely, RemoteOK, Google Jobs, X/Twitter
+   hiring posts, Facebook/Instagram hiring posts, niche community boards). The source set is meant
+   to **keep expanding** — treat the registry in `src/sources-registry.js` as the living list of
+   platforms, and never let a cycle collapse onto LinkedIn alone. A cycle that ran no web search is
+   incomplete. Honor this profile's `preferences.locations`, `preferences.locationScope`, and
+   `workAuth`. Hunt relocation or visa sponsorship only when this profile asks for it, and only in
+   the places it lists. Save discovered leads with `save_jobs`.
 3. **Read the path trace, then act on the freshest leads.** Follow `docs/paths/<site>/path.md`
    for that site before you open it, and update the trace when the hop changes. For each lead,
    judge relevance against the profile
@@ -197,11 +203,19 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
    `connect.js`, `sources.js`), then `resolve_encounter id "<what you changed>"`.
    An Indeed or Glassdoor login wall is the learned path in `docs/board-login.md`
    (normal window, Glassdoor with Google, then Indeed). Do not spoof a fingerprint for it.
-3. **Clear pending questions.** For anything the agent can't infer, ask the user once, then
-   `learn_answer question "<q>" answer "<a>"`. The dashboard's 🧠 Questions tab **pre-fills a
-   recommended answer** drawn from the user's profile + free-form context (and marks the suggested
-   choice for yes/no), so the user usually just confirms. It's reused (fuzzy-matched) on every
-   future application. The agent also **auto-harvests** the user's own prefilled LinkedIn answers.
+3. **Clear pending questions — but answer confidently first; never loop skip→retry→skip.**
+   The answer engine (`src/mcp/answers.js`) is built to answer **every** required field from the
+   profile: free-text gets a profile-grounded line, numeric gets the profile value or a safe `0`,
+   and a radio/select/checkbox with no direct match gets the safest profile-consistent option
+   (Yes for capability/consent, the standard-safe answer for legal screening, the first neutral
+   option otherwise). It should almost never park a required field. When a question is genuinely
+   ambiguous and the profile truly can't ground it, **use web search to resolve it** before giving
+   up; only after that, ask the user once and `learn_answer question "<q>" answer "<a>"`. Do NOT
+   let an application sit parked and get re-attempted and re-skipped repeatedly — that wasted-cycle
+   loop is exactly what we removed. The dashboard's 🧠 Questions tab **pre-fills a recommended
+   answer** from the profile + free-form context (and marks the suggested choice for yes/no), so
+   the user usually just confirms. Answers are reused (fuzzy-matched) on every future application,
+   and the agent **auto-harvests** the user's own prefilled LinkedIn answers.
 4. **Contribute back — MANDATORY, after EVERY code/doc change.** JobPilot keeps itself and the
    public repo in lockstep. This is not optional background behavior — treat it as part of
    "done" for any change you make to the code:
@@ -277,6 +291,15 @@ The agent remembers what it couldn't do and gets better. **You** close the loop:
     contributes. Hard-guarded against ever committing `data/`, `.env*`, or credentials.- **Never re-email / re-apply / re-connect.** `check_already_actioned` before outreach; the DB in
   `data/jobs.db` preserves history across runs and across different agents.
 - **Freshest first.** Prefer leads posted in the last 24h; the queues are already ordered that way.
+- **Answer every form field confidently — never stall.** Use the profile (via `src/mcp/answers.js`)
+  to answer required fields, and web-search anything the profile can't ground, BEFORE parking a
+  question. A relevant application must not sit parked and get retried-and-skipped in a loop; that
+  wasted-cycle behavior was removed on purpose. Only genuinely ambiguous, profile-ungroundable
+  questions become a single pending question for the user — never a repeating skip.
+- **Web search is part of every cycle, and the source set keeps expanding.** Each cycle must run a
+  web search (JobPilot's `web_research`/`scrape_*` tools and your brain's own search) to reach
+  platforms beyond LinkedIn/Indeed/Glassdoor. `src/sources-registry.js` is the living list of
+  platforms; add to it as you discover new ones rather than hardcoding a source in several files.
 - **Respect limits** in the profile (daily caps, max attempts, timeouts). The worker enforces them.
 - **Easy Apply account-safety (standing instruction).** Over-applying via LinkedIn Easy Apply can get
   the account restricted. Once a day, research the CURRENT LinkedIn Easy Apply daily submission limit
